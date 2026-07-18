@@ -14,6 +14,8 @@ export default function PreferencesDialog({ open, onOpenChange }: { open: boolea
   const setNewFrameInheritBoxes = useEditorStore((s) => s.setNewFrameInheritBoxes)
   const newFrameInheritOffset = useEditorStore((s) => s.newFrameInheritOffset)
   const setNewFrameInheritOffset = useEditorStore((s) => s.setNewFrameInheritOffset)
+  const saveEditorMetadata = useEditorStore((s) => s.saveEditorMetadata)
+  const setSaveEditorMetadata = useEditorStore((s) => s.setSaveEditorMetadata)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -38,6 +40,16 @@ export default function PreferencesDialog({ open, onOpenChange }: { open: boolea
                 <p className="text-xs text-muted-foreground">新建帧时继承源帧的 hurtbox/hitbox/JC框/推挤框/发射点。关闭则不继承。</p>
               </div>
               <Switch checked={newFrameInheritBoxes} onCheckedChange={setNewFrameInheritBoxes} />
+            </div>
+          </section>
+          <section className="flex flex-col gap-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">文件</h3>
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <Label className="text-sm">保存编辑器元数据</Label>
+                <p className="text-xs text-muted-foreground">导出 JSON 时写入 editor 字段（洋葱皮/图层显示）。关闭则导出纯动画数据。</p>
+              </div>
+              <Switch checked={saveEditorMetadata} onCheckedChange={setSaveEditorMetadata} />
             </div>
           </section>
         </div>

@@ -103,17 +103,18 @@ export type Tool =
   | 'spawnpoint'
   | 'anchor';
 
-/** 图层显示控制 */
-export interface ShowLayers {
-  hurtbox: boolean;
-  hitbox: boolean;
-  jcbox: boolean;
-  pushbox: boolean;
-  spawnpoint: boolean;
-  onionSkin: boolean;
-  onionBoxes: boolean;
-  grid: boolean;
-}
+/** 图层显示控制 —— 字段列表的唯一数据源，新增/移除字段只改这里 */
+export const SHOW_LAYER_KEYS = [
+  'hurtbox',
+  'hitbox',
+  'jcbox',
+  'pushbox',
+  'spawnpoint',
+  'onionSkin',
+  'grid',
+] as const
+export type ShowLayerKey = (typeof SHOW_LAYER_KEYS)[number]
+export type ShowLayers = Record<ShowLayerKey, boolean>
 
 /** 洋葱皮设置 */
 export interface OnionSkinSettings {

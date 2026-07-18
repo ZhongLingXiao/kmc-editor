@@ -78,6 +78,7 @@ interface EditorState {
   frameListMode: 'detail' | 'compact' // 帧列表显示模式（编辑器态）
   newFrameInheritBoxes: boolean // 新帧是否继承源帧碰撞箱与发射点（编辑器态）
   newFrameInheritOffset: boolean // 新帧是否继承源帧轴点（编辑器态）
+  saveEditorMetadata: boolean // 导出时是否写入 editor 元数据（编辑器态）
 
   // === 预览状态 ===
   isPlaying: boolean
@@ -137,6 +138,7 @@ interface EditorState {
   setFrameListMode: (mode: 'detail' | 'compact') => void
   setNewFrameInheritBoxes: (inherit: boolean) => void
   setNewFrameInheritOffset: (inherit: boolean) => void
+  setSaveEditorMetadata: (save: boolean) => void
 
   // === Actions: 预览 ===
   setPlaying: (playing: boolean) => void
@@ -169,7 +171,6 @@ export const useEditorStore = create<EditorState>()(
         pushbox: true,
         spawnpoint: true,
         onionSkin: true,
-        onionBoxes: true,
         grid: true,
       },
 
@@ -188,6 +189,7 @@ export const useEditorStore = create<EditorState>()(
       frameListMode: 'detail',
       newFrameInheritBoxes: true,
       newFrameInheritOffset: true,
+      saveEditorMetadata: true,
 
       isPlaying: false,
       playSpeed: 1,
@@ -580,6 +582,7 @@ export const useEditorStore = create<EditorState>()(
       setFrameListMode: (mode) => set({ frameListMode: mode }),
       setNewFrameInheritBoxes: (inherit) => set({ newFrameInheritBoxes: inherit }),
       setNewFrameInheritOffset: (inherit) => set({ newFrameInheritOffset: inherit }),
+      setSaveEditorMetadata: (save) => set({ saveEditorMetadata: save }),
 
       // === 预览 ===
       setPlaying: (playing) => set({ isPlaying: playing }),

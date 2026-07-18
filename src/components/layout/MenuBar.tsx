@@ -14,7 +14,7 @@ import {
 import { Undo2, Redo2 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useEditorStore } from '../../store/editorStore'
-import { exportAnimation, importAnimation } from '../../utils/export'
+import { exportAnimation, importAnimation, buildExportData } from '../../utils/export'
 import { toast } from 'sonner'
 import { useRef, useState, useEffect } from 'react'
 import PreferencesDialog from './PreferencesDialog'
@@ -98,8 +98,7 @@ export default function MenuBar() {
     if (currentFileHandle) {
       try {
         const writable = await currentFileHandle.createWritable()
-        const totalTicks = anim.elements.reduce((sum, e) => sum + e.duration, 0)
-        const data = { ...anim, totalTicks }
+        const data = buildExportData(anim, useEditorStore.getState().saveEditorMetadata)
         await writable.write(JSON.stringify(data, null, 2))
         await writable.close()
         toast.success('已保存')
@@ -122,8 +121,7 @@ export default function MenuBar() {
         types: [{ description: '动画文件', accept: { 'application/json': ['.json'] } }],
       })
       const writable = await handle.createWritable()
-      const totalTicks = anim.elements.reduce((sum, e) => sum + e.duration, 0)
-      const data = { ...anim, totalTicks }
+      const data = buildExportData(anim, useEditorStore.getState().saveEditorMetadata)
       await writable.write(JSON.stringify(data, null, 2))
       await writable.close()
       currentFileHandle = handle
@@ -135,7 +133,7 @@ export default function MenuBar() {
   }
 
   const handleExport = () => {
-    exportAnimation(animation)
+    exportAnimation(animation, useEditorStore.getState().saveEditorMetadata)
     setOpenMenu(null)
   }
 
