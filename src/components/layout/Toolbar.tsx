@@ -30,14 +30,14 @@ export default function Toolbar() {
     e.target.value = ''
   }
 
-  const tools: { id: Tool; label: string; icon: string }[] = [
+  const tools: { id: Tool; label: string; icon: string; hint?: string }[] = [
     { id: 'select', label: '选择', icon: '↖' },
     { id: 'hurtbox', label: '受击框', icon: '▣' },
     { id: 'hitbox', label: '攻击框', icon: '⚔' },
     { id: 'jcbox', label: 'JC框', icon: '◈' },
     { id: 'pushbox', label: '推挤框', icon: '▭' },
     { id: 'spawnpoint', label: '发射点', icon: '●' },
-    { id: 'anchor', label: '图片对齐', icon: '✥' },
+    { id: 'anchor', label: '图片对齐', icon: '✥', hint: '图片对齐（拖拽移动精灵；按住 Shift 拖拽锁定主轴向）' },
   ]
 
   return (
@@ -68,7 +68,7 @@ export default function Toolbar() {
           key={t.id}
           className={`tool-button tool-${t.id} ${tool === t.id ? 'active' : ''}`}
           onClick={() => setTool(t.id)}
-          title={t.label}
+          title={t.hint ?? t.label}
         >
           {t.icon} {t.label}
         </button>

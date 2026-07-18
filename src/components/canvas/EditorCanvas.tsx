@@ -85,6 +85,10 @@ export default function EditorCanvas() {
   // 选中框的 ref
   const selectedNodeRef = useRef<Konva.Rect | null>(null)
 
+  // 图片对齐拖拽：记录起点与 Shift 锁定的主轴向（'x'=水平 / 'y'=垂直）
+  const dragStartPos = useRef<{ x: number; y: number } | null>(null)
+  const lockedAxis = useRef<'x' | 'y' | null>(null)
+
   useEffect(() => {
     // 统一 Transformer：推挤框、受击框、攻击框在同一 Layer 中，
     // 选中哪个就绑定哪个节点。
@@ -382,6 +386,40 @@ export default function EditorCanvas() {
         }}
         onDragStart={(e) => {
           e.target.getStage()?.container().style.setProperty('cursor', 'grabbing')
+          // 记录拖拽起点，供 Shift 锁主轴向时计算偏移与约束
+          dragStartPos.current = { x: e.target.x(), y: e.target.y() }
+          lockedAxis.current = null
+        }}
+        onDragMove={(e) => {
+          // Shift + 拖拽 = 锁定到主轴向（Figma 风格）：以移动量较大的轴为约束方向，
+          // 松开 Shift 恢复自由拖拽。锁定一旦确定，本次拖拽内保持，避免对角线附近抖动。
+          const start = dragStartPos.current
+          if (!start) return
+          const container = e.target.getStage()?.container()
+          if (!e.evt.shiftKey) {
+            if (lockedAxis.current !== null) {
+              lockedAxis.current = null
+              container?.style.setProperty('cursor', 'grabbing')
+            }
+            return
+          }
+          const dx = e.target.x() - start.x
+          const dy = e.target.y() - start.y
+          if (!lockedAxis.current) {
+            // 需有可辨识位移才确定主轴，避免亚像素抖动误判
+            if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return
+            // 横向占优 → 锁水平（冻结 Y）；纵向占优 → 锁垂直（冻结 X）
+            lockedAxis.current = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y'
+            container?.style.setProperty(
+              'cursor',
+              lockedAxis.current === 'x' ? 'ew-resize' : 'ns-resize'
+            )
+          }
+          if (lockedAxis.current === 'x') {
+            e.target.y(start.y) // 冻结垂直，只允许水平移动
+          } else {
+            e.target.x(start.x) // 冻结水平，只允许垂直移动
+          }
         }}
         onDragEnd={(e) => {
           e.target.getStage()?.container().style.setProperty('cursor', 'grab')
