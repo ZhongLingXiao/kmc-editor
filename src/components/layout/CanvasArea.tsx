@@ -96,19 +96,28 @@ export default function CanvasArea() {
     if (isPanning) setIsPanning(false)
   }
 
-  // 拖拽图片到画布 → 创建新帧并载入该图（多图目前只取第一张，未来支持序列帧）
+  // 拖拽图片到画布：当前帧无图 → 导入当前帧；当前帧有图 → 创建新帧（多图目前只取第一张）
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     const file = e.dataTransfer.files[0]
     if (!file || !file.type.startsWith('image/')) return
     try {
       const info = await readImageFile(file)
-      // 继承末尾帧数据（轴点/box），使序列帧视觉连续
-      const lastIdx = useEditorStore.getState().animation.elements.length - 1
-      addFrame(lastIdx)
-      const newIndex = useEditorStore.getState().currentFrameIndex
-      useEditorStore.getState().loadSprite(newIndex, info.path, info.data, info.w, info.h)
-      toast.success('已创建新帧')
+      const store = useEditorStore.getState()
+      const cur = store.currentFrameIndex
+      const curFrame = cur >= 0 ? store.animation.elements[cur] : null
+      if (curFrame && curFrame.sprite.w === 0) {
+        // 当前帧无图 → 直接导入当前帧
+        store.loadSprite(cur, info.path, info.data, info.w, info.h)
+        toast.success('已导入当前帧')
+      } else {
+        // 当前帧有图 → 继承末尾帧数据创建新帧
+        const lastIdx = store.animation.elements.length - 1
+        addFrame(lastIdx)
+        const newIndex = useEditorStore.getState().currentFrameIndex
+        useEditorStore.getState().loadSprite(newIndex, info.path, info.data, info.w, info.h)
+        toast.success('已创建新帧')
+      }
     } catch {
       toast.error('图片加载失败')
     }
