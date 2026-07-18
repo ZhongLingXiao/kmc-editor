@@ -324,21 +324,26 @@ export default function EditorCanvas() {
         onTransformEnd={() => {
           const node = selectedNodeRef.current
           if (!node) return
-          const newW = toGameSize(node.width() * node.scaleX())
-          const newH = toGameSize(node.height() * node.scaleY())
-          // 位置可能也变了
-          const newSx = node.x()
-          const newSy = node.y() + newH * scale
-          const [gx, gy] = toGame(newSx, newSy)
+          // 变换后的实际屏幕尺寸与左上角
+          const screenW = node.width() * node.scaleX()
+          const screenH = node.height() * node.scaleY()
+          const screenLeft = node.x()
+          const screenBottom = node.y() + screenH
+          // 转逻辑（左下角 + 尺寸）
+          const [gx, gy] = toGame(screenLeft, screenBottom)
+          const newW = toGameSize(screenW)
+          const newH = toGameSize(screenH)
+          // 先同步 node 尺寸再重置 scale，避免重置瞬间用旧尺寸渲染导致位移跳变
+          node.width(screenW)
+          node.height(screenH)
+          node.scaleX(1)
+          node.scaleY(1)
           useEditorStore.getState().updateBox(type, box.id, {
             x: Math.round(gx),
             y: Math.round(gy),
             w: Math.round(newW),
             h: Math.round(newH),
           })
-          // 重置 scale（尺寸已写入 width/height）
-          node.scaleX(1)
-          node.scaleY(1)
         }}
       />
     )
@@ -719,17 +724,23 @@ export default function EditorCanvas() {
                 onTransformEnd={() => {
                   const node = selectedNodeRef.current
                   if (!node) return
-                  const newW = toGameSize(node.width() * node.scaleX())
-                  const newH = toGameSize(node.height() * node.scaleY())
-                  const [gx, gy] = toGame(node.x(), node.y() + newH * scale)
+                  const screenW = node.width() * node.scaleX()
+                  const screenH = node.height() * node.scaleY()
+                  const screenLeft = node.x()
+                  const screenBottom = node.y() + screenH
+                  const [gx, gy] = toGame(screenLeft, screenBottom)
+                  const newW = toGameSize(screenW)
+                  const newH = toGameSize(screenH)
+                  node.width(screenW)
+                  node.height(screenH)
+                  node.scaleX(1)
+                  node.scaleY(1)
                   useEditorStore.getState().updatePushbox('stand', {
                     x: Math.round(gx),
                     y: Math.round(gy),
                     w: Math.round(newW),
                     h: Math.round(newH),
                   })
-                  node.scaleX(1)
-                  node.scaleY(1)
                 }}
               />
             )
