@@ -14,6 +14,19 @@ import {
 import { SkipBack, ChevronLeft, Play, Pause, ChevronRight, SkipForward, Repeat, Minus, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+function TBtn({ children, onClick, disabled, title }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean; title: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="ghost" size="icon-sm" onClick={onClick} disabled={disabled}>
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{title}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 export default function TimelineBar() {
   const animation = useEditorStore((s) => s.animation)
   const currentFrameIndex = useEditorStore((s) => s.currentFrameIndex)
@@ -24,8 +37,9 @@ export default function TimelineBar() {
   const setPlaying = useEditorStore((s) => s.setPlaying)
   const playSpeed = useEditorStore((s) => s.playSpeed)
   const setPlaySpeed = useEditorStore((s) => s.setPlaySpeed)
-  const updateAnimationMeta = useEditorStore((s) => s.updateAnimationMeta)
   const updateFrame = useEditorStore((s) => s.updateFrame)
+  const previewLoop = useEditorStore((s) => s.previewLoop)
+  const togglePreviewLoop = useEditorStore((s) => s.togglePreviewLoop)
 
   const hasFrames = animation.elements.length > 0
   const isLastFrame = currentFrameIndex === animation.elements.length - 1
@@ -150,17 +164,6 @@ export default function TimelineBar() {
     setPxPerTick((prev) => Math.max(minPxPerTick, Math.min(maxPxPerTick, prev + delta)))
   }
 
-  const TBtn = ({ children, onClick, disabled, title }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean; title: string }) => (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button variant="ghost" size="icon-sm" onClick={onClick} disabled={disabled}>
-          {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{title}</TooltipContent>
-    </Tooltip>
-  )
-
   return (
     <div className="flex shrink-0 flex-col border-t bg-card" onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
       <div className="flex h-[38px] items-center gap-1 border-b px-2">
@@ -174,9 +177,20 @@ export default function TimelineBar() {
 
         <Separator orientation="vertical" className="mx-1 h-5" />
 
-        <TBtn title="循环播放" onClick={() => updateAnimationMeta({ loop: !animation.loop })} disabled={!hasFrames}>
-          <Repeat className={cn(animation.loop && 'text-primary')} />
-        </TBtn>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={togglePreviewLoop}
+              disabled={!hasFrames}
+              className={cn(previewLoop && 'bg-accent text-accent-foreground')}
+            >
+              <Repeat className={cn(previewLoop && 'text-primary')} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>循环播放</TooltipContent>
+        </Tooltip>
 
         <Separator orientation="vertical" className="mx-1 h-5" />
 
@@ -202,9 +216,24 @@ export default function TimelineBar() {
         <div className="flex-1" />
 
         <span className="text-xs text-muted-foreground">缩放</span>
-        <Button variant="outline" size="icon-sm" onClick={() => setPxPerTick((p) => Math.max(minPxPerTick, p - 2))} title="缩小"><Minus /></Button>
-        <Button variant="outline" size="sm" className="h-7 cursor-ew-resize px-2" onMouseDown={handleZoomMouseDown} title="左右拖动调节，单击恢复">{pxPerTick}px</Button>
-        <Button variant="outline" size="icon-sm" onClick={() => setPxPerTick((p) => Math.min(maxPxPerTick, p + 2))} title="放大"><Plus /></Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="outline" size="icon-sm" onClick={() => setPxPerTick((p) => Math.max(minPxPerTick, p - 2))}><Minus /></Button>
+          </TooltipTrigger>
+          <TooltipContent>缩小</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="outline" size="sm" className="h-7 cursor-ew-resize px-2" onMouseDown={handleZoomMouseDown}>{pxPerTick}px</Button>
+          </TooltipTrigger>
+          <TooltipContent>左右拖动调节，单击恢复</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="outline" size="icon-sm" onClick={() => setPxPerTick((p) => Math.min(maxPxPerTick, p + 2))}><Plus /></Button>
+          </TooltipTrigger>
+          <TooltipContent>放大</TooltipContent>
+        </Tooltip>
       </div>
 
       <div ref={scrollRef} className="relative h-[54px] overflow-x-auto overflow-y-hidden" onWheel={handleWheel}>

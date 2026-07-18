@@ -43,7 +43,7 @@ export default function SettingsPanel() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col border-t">
-      <div className="shrink-0 px-3 py-2">
+      <div className="shrink-0 bg-muted/50 px-3 py-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">设置</span>
       </div>
       <Separator />
@@ -60,7 +60,7 @@ export default function SettingsPanel() {
             <Row label="总时长">
               <span className="text-xs text-muted-foreground">{animation.totalTicks} Tick</span>
             </Row>
-            <Row label="循环">
+            <Row label="循环(导出)">
               <Switch checked={animation.loop} onCheckedChange={(v) => updateAnimationMeta({ loop: v })} />
             </Row>
           </AccordionContent>
@@ -89,20 +89,18 @@ export default function SettingsPanel() {
                 className="h-7"
               />
             </Row>
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs text-muted-foreground">透明度</Label>
-                <span className="text-xs text-muted-foreground">{Math.round(onionSkin.baseOpacity * 100)}%</span>
+            <Row label="透明度">
+              <div className="flex items-center gap-2">
+                <Slider className="w-24 shrink-0" value={[onionSkin.baseOpacity]} min={0.1} max={1} step={0.05} onValueChange={([v]) => updateOnionSkin({ baseOpacity: v })} />
+                <span className="w-9 shrink-0 text-right text-xs text-muted-foreground">{Math.round(onionSkin.baseOpacity * 100)}%</span>
               </div>
-              <Slider value={[onionSkin.baseOpacity]} min={0.1} max={1} step={0.05} onValueChange={([v]) => updateOnionSkin({ baseOpacity: v })} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs text-muted-foreground">衰减率</Label>
-                <span className="text-xs text-muted-foreground">{Math.round(onionSkin.decayRate * 100)}%</span>
+            </Row>
+            <Row label="衰减率">
+              <div className="flex items-center gap-2">
+                <Slider className="w-24 shrink-0" value={[onionSkin.decayRate]} min={0.2} max={1} step={0.05} onValueChange={([v]) => updateOnionSkin({ decayRate: v })} />
+                <span className="w-9 shrink-0 text-right text-xs text-muted-foreground">{Math.round(onionSkin.decayRate * 100)}%</span>
               </div>
-              <Slider value={[onionSkin.decayRate]} min={0.2} max={1} step={0.05} onValueChange={([v]) => updateOnionSkin({ decayRate: v })} />
-            </div>
+            </Row>
             <Row label="前帧色">
               <div className="flex items-center gap-1.5">
                 <input

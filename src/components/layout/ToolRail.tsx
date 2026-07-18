@@ -1,10 +1,11 @@
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Separator } from '@/components/ui/separator'
 import { MousePointer2, Move, Square, Swords, Diamond, Box, Crosshair } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { Tool } from '../../types/animation'
 import type { LucideIcon } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 const editTools: { id: Tool; label: string; icon: LucideIcon }[] = [
   { id: 'select', label: '选择', icon: MousePointer2 },
@@ -19,13 +20,31 @@ const createTools: { id: Tool; label: string; icon: LucideIcon }[] = [
   { id: 'spawnpoint', label: '发射点', icon: Crosshair },
 ]
 
-function ToolButton({ id, label, icon: Icon }: { id: Tool; label: string; icon: LucideIcon }) {
+function ToolButton({
+  id,
+  label,
+  icon: Icon,
+  active,
+  onClick,
+}: {
+  id: Tool
+  label: string
+  icon: LucideIcon
+  active: boolean
+  onClick: (id: Tool) => void
+}) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <ToggleGroupItem value={id} aria-label={label} className="size-8 p-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn('size-8', active && 'bg-accent text-accent-foreground')}
+          onClick={() => onClick(id)}
+          aria-label={label}
+        >
           <Icon />
-        </ToggleGroupItem>
+        </Button>
       </TooltipTrigger>
       <TooltipContent side="right">{label}</TooltipContent>
     </Tooltip>
@@ -38,31 +57,13 @@ export default function ToolRail() {
 
   return (
     <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r bg-card py-2">
-      <ToggleGroup
-        type="single"
-        value={tool}
-        onValueChange={(v) => v && setTool(v as Tool)}
-        orientation="vertical"
-        className="flex flex-col gap-1"
-      >
-        {editTools.map((t) => (
-          <ToolButton key={t.id} {...t} />
-        ))}
-      </ToggleGroup>
-
+      {editTools.map((t) => (
+        <ToolButton key={t.id} {...t} active={tool === t.id} onClick={setTool} />
+      ))}
       <Separator className="my-1 w-6" />
-
-      <ToggleGroup
-        type="single"
-        value={tool}
-        onValueChange={(v) => v && setTool(v as Tool)}
-        orientation="vertical"
-        className="flex flex-col gap-1"
-      >
-        {createTools.map((t) => (
-          <ToolButton key={t.id} {...t} />
-        ))}
-      </ToggleGroup>
+      {createTools.map((t) => (
+        <ToolButton key={t.id} {...t} active={tool === t.id} onClick={setTool} />
+      ))}
     </div>
   )
 }

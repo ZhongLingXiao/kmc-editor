@@ -592,10 +592,16 @@ export default function EditorCanvas() {
     const y = originY - frame.offset.y * scale
     return (
       <Group listening={false}>
-        <Line points={[x - 12, y, x + 12, y]} stroke={COLORS.anchor} strokeWidth={2} />
-        <Line points={[x, y - 12, x, y + 12]} stroke={COLORS.anchor} strokeWidth={2} />
-        <Circle x={x} y={y} radius={3} fill={COLORS.anchor} />
-        <Text x={x + 8} y={y - 20} text="Image (0,0)" fontSize={10} fill={COLORS.anchor} />
+        {/* 准星环 */}
+        <Circle x={x} y={y} radius={7} stroke={COLORS.anchor} strokeWidth={1.5} />
+        {/* 细十字 */}
+        <Line points={[x - 11, y, x + 11, y]} stroke={COLORS.anchor} strokeWidth={1} />
+        <Line points={[x, y - 11, x, y + 11]} stroke={COLORS.anchor} strokeWidth={1} />
+        {/* 中心点 */}
+        <Circle x={x} y={y} radius={1.5} fill={COLORS.anchor} />
+        {/* 标签：浅底色块提高白底可读性 */}
+        <Rect x={x + 10} y={y - 19} width={66} height={14} fill="rgba(255,255,255,0.85)" cornerRadius={2} stroke={COLORS.anchor} strokeWidth={0.5} />
+        <Text x={x + 13} y={y - 17} text="Image (0,0)" fontSize={10} fill={COLORS.anchor} />
       </Group>
     )
   }

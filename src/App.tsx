@@ -18,7 +18,7 @@ export default function App() {
   const currentTick = useEditorStore((s) => s.currentTick)
   const totalTicks = useEditorStore((s) => s.animation.totalTicks)
   const elemCount = useEditorStore((s) => s.animation.elements.length)
-  const loop = useEditorStore((s) => s.animation.loop)
+  const loop = useEditorStore((s) => s.previewLoop)
   const setPlaying = useEditorStore((s) => s.setPlaying)
   const setCurrentTick = useEditorStore((s) => s.setCurrentTick)
 
@@ -188,7 +188,7 @@ export default function App() {
   }, [])
 
   return (
-    <TooltipProvider delayDuration={300}>
+    <TooltipProvider delayDuration={0}>
       <div className="flex h-full w-full flex-col overflow-hidden bg-background text-foreground">
         <MenuBar />
         <div className="flex min-h-0 flex-1">

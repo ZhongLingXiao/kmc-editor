@@ -3,7 +3,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
-import { Trash2 } from 'lucide-react'
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -31,11 +30,8 @@ export default function Inspector() {
   const selectedBoxId = useEditorStore((s) => s.selectedBoxId)
   const selectedBoxType = useEditorStore((s) => s.selectedBoxType)
   const updateBox = useEditorStore((s) => s.updateBox)
-  const removeBox = useEditorStore((s) => s.removeBox)
   const updatePushbox = useEditorStore((s) => s.updatePushbox)
-  const setPushbox = useEditorStore((s) => s.setPushbox)
   const updateSpawnPoint = useEditorStore((s) => s.updateSpawnPoint)
-  const removeSpawnPoint = useEditorStore((s) => s.removeSpawnPoint)
   const updateFrame = useEditorStore((s) => s.updateFrame)
   const setOffset = useEditorStore((s) => s.setOffset)
 
@@ -63,7 +59,7 @@ export default function Inspector() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 px-3 py-2">
+      <div className="shrink-0 bg-muted/50 px-3 py-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</span>
       </div>
       <Separator />
@@ -75,9 +71,6 @@ export default function Inspector() {
             <Row label="Y"><NumInput value={selected.data.y} onChange={(v) => updateBox(selected.type, selectedBoxId!, { y: v })} /></Row>
             <Row label="宽"><NumInput value={selected.data.w} onChange={(v) => updateBox(selected.type, selectedBoxId!, { w: v })} /></Row>
             <Row label="高"><NumInput value={selected.data.h} onChange={(v) => updateBox(selected.type, selectedBoxId!, { h: v })} /></Row>
-            <Button variant="outline" size="sm" className="mt-1 w-full text-destructive" onClick={() => removeBox(selected.type, selectedBoxId!)}>
-              <Trash2 /> 删除
-            </Button>
           </>
         )}
 
@@ -91,9 +84,6 @@ export default function Inspector() {
                 <NumInput value={selected.data![k]} onChange={(v) => updatePushbox('stand', { [k]: v })} />
               </Row>
             ))}
-            <Button variant="outline" size="sm" className="mt-1 w-full text-destructive" onClick={() => setPushbox('stand', null)}>
-              <Trash2 /> 删除推挤框
-            </Button>
           </>
         )}
 
@@ -104,9 +94,6 @@ export default function Inspector() {
             </Row>
             <Row label="X"><NumInput value={selected.data.x} onChange={(v) => updateSpawnPoint(selectedBoxId!, { x: v })} /></Row>
             <Row label="Y"><NumInput value={selected.data.y} onChange={(v) => updateSpawnPoint(selectedBoxId!, { y: v })} /></Row>
-            <Button variant="outline" size="sm" className="mt-1 w-full text-destructive" onClick={() => removeSpawnPoint(selectedBoxId!)}>
-              <Trash2 /> 删除
-            </Button>
           </>
         )}
 

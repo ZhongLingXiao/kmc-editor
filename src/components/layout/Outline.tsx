@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/context-menu'
 import { ChevronRight, Eye, EyeOff, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 type BoxType = 'hurtbox' | 'hitbox' | 'jcbox'
 type GroupKey = BoxType | 'pushbox' | 'spawnpoint'
@@ -66,7 +67,7 @@ export default function Outline() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col border-t">
-      <div className="flex shrink-0 items-center justify-between px-3 py-2">
+      <div className="flex shrink-0 items-center justify-between bg-muted/50 px-3 py-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">场景大纲</span>
         {frame && <Badge variant="secondary" className="font-normal">{totalObjects}</Badge>}
       </div>
@@ -94,13 +95,17 @@ export default function Outline() {
                   </CollapsibleTrigger>
                   <Badge variant="outline" className="h-4 px-1 text-[10px] font-normal">{items.length}</Badge>
                   <div className="flex-1" />
-                  <button
-                    onClick={() => toggleLayer(layerKey)}
-                    className="rounded p-1 text-muted-foreground hover:bg-accent"
-                    title={visible ? '隐藏' : '显示'}
-                  >
-                    {visible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => toggleLayer(layerKey)}
+                        className="rounded p-1 text-muted-foreground hover:bg-accent"
+                      >
+                        {visible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>{visible ? '隐藏' : '显示'}</TooltipContent>
+                  </Tooltip>
                 </div>
                 <CollapsibleContent>
                   <div className="ml-2 border-l pl-1">

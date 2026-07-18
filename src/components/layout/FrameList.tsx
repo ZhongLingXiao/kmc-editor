@@ -13,6 +13,7 @@ import {
 import { Plus, Copy, Trash2, ImageUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 export default function FrameList() {
   const animation = useEditorStore((s) => s.animation)
@@ -51,11 +52,16 @@ export default function FrameList() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-between px-3 py-2">
+      <div className="flex shrink-0 items-center justify-between bg-muted/50 px-3 py-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">帧列表</span>
-        <Button variant="ghost" size="icon-xs" onClick={addFrame} title="添加帧">
-          <Plus />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon-xs" onClick={addFrame}>
+              <Plus />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>添加帧</TooltipContent>
+        </Tooltip>
       </div>
       <Separator />
       <input
@@ -129,18 +135,27 @@ export default function FrameList() {
             <Button variant="outline" size="sm" className="flex-1" onClick={() => startLoadSprite(currentFrameIndex)}>
               载入图
             </Button>
-            <Button variant="outline" size="sm" onClick={() => duplicateFrame(currentFrameIndex)} title="复制帧">
-              <Copy />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => removeFrame(currentFrameIndex)}
-              disabled={animation.elements.length <= 1}
-              title="删除帧"
-            >
-              <Trash2 />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="sm" onClick={() => duplicateFrame(currentFrameIndex)}>
+                  <Copy />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>复制帧</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => removeFrame(currentFrameIndex)}
+                  disabled={animation.elements.length <= 1}
+                >
+                  <Trash2 />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>删除帧</TooltipContent>
+            </Tooltip>
           </div>
         </>
       )}

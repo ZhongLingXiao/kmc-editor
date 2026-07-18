@@ -12,6 +12,7 @@ import {
   MenubarShortcut,
 } from '@/components/ui/menubar'
 import { Undo2, Redo2 } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useEditorStore } from '../../store/editorStore'
 import { exportAnimation, importAnimation } from '../../utils/export'
 import { toast } from 'sonner'
@@ -227,12 +228,22 @@ export default function MenuBar() {
 
       <Separator orientation="vertical" className="mx-1 h-5" />
 
-      <Button variant="ghost" size="icon-sm" onClick={undo} disabled={!canUndo} title="撤销 Ctrl+Z">
-        <Undo2 />
-      </Button>
-      <Button variant="ghost" size="icon-sm" onClick={redo} disabled={!canRedo} title="重做 Ctrl+Y">
-        <Redo2 />
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="ghost" size="icon-sm" onClick={undo} disabled={!canUndo}>
+            <Undo2 />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>撤销 Ctrl+Z</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="ghost" size="icon-sm" onClick={redo} disabled={!canRedo}>
+            <Redo2 />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>重做 Ctrl+Y</TooltipContent>
+      </Tooltip>
     </div>
   )
 }

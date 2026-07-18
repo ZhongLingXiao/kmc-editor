@@ -13,7 +13,7 @@ import {
   ContextMenuSubContent,
 } from '@/components/ui/context-menu'
 import { spaceState } from '../../lib/space-pan'
-import { Tool } from '../../types/animation'
+import { MousePointer2, Move, Square, Swords, Diamond, Box, Crosshair } from 'lucide-react'
 
 export default function CanvasArea() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -97,16 +97,6 @@ export default function CanvasArea() {
 
   const cursor = isPanning ? 'grabbing' : spaceHeld ? 'grab' : 'default'
 
-  const tools: { id: Tool; label: string }[] = [
-    { id: 'select', label: '选择' },
-    { id: 'anchor', label: '精灵对齐' },
-    { id: 'hurtbox', label: '受击框' },
-    { id: 'hitbox', label: '攻击框' },
-    { id: 'jcbox', label: 'JC框' },
-    { id: 'pushbox', label: '推挤框' },
-    { id: 'spawnpoint', label: '发射点' },
-  ]
-
   return (
     <div className="relative flex min-w-0 flex-1 flex-col bg-muted">
       <ContextMenu>
@@ -119,6 +109,7 @@ export default function CanvasArea() {
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
+            onDoubleClick={() => resetView()}
             style={{ cursor }}
           >
             <EditorCanvas />
@@ -128,11 +119,28 @@ export default function CanvasArea() {
           <ContextMenuSub>
             <ContextMenuSubTrigger>切换工具</ContextMenuSubTrigger>
             <ContextMenuSubContent>
-              {tools.map((t) => (
-                <ContextMenuItem key={t.id} onClick={() => setTool(t.id)}>
-                  {t.label}
-                </ContextMenuItem>
-              ))}
+              <ContextMenuItem onClick={() => setTool('select')}>
+                <MousePointer2 /> 选择
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => setTool('anchor')}>
+                <Move /> 精灵对齐
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem onClick={() => setTool('hurtbox')}>
+                <Square /> 受击框
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => setTool('hitbox')}>
+                <Swords /> 攻击框
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => setTool('jcbox')}>
+                <Diamond /> JC框
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => setTool('pushbox')}>
+                <Box /> 推挤框
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => setTool('spawnpoint')}>
+                <Crosshair /> 发射点
+              </ContextMenuItem>
             </ContextMenuSubContent>
           </ContextMenuSub>
           <ContextMenuSeparator />

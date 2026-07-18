@@ -146,7 +146,7 @@ export const COLORS = {
   pushbox: 'rgba(0, 200, 0, 0.2)',
   pushboxBorder: 'rgba(0, 200, 0, 0.7)',
   spawnpoint: 'rgba(255, 200, 0, 0.9)',
-  anchor: 'rgba(255, 255, 0, 1)',
+  anchor: 'rgba(180, 83, 9, 1)',
   grid: 'rgba(128, 128, 128, 0.15)',
   origin: 'rgba(255, 0, 0, 0.5)',
   onionPrev: 'rgba(0, 150, 255, 0.2)',
