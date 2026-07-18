@@ -1,5 +1,18 @@
 import { useRef } from 'react'
 import { useEditorStore } from '../../store/editorStore'
+import { Button } from '@/components/ui/button'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Separator } from '@/components/ui/separator'
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from '@/components/ui/context-menu'
+import { Plus, Copy, Trash2, ImageUp } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 
 export default function FrameList() {
   const animation = useEditorStore((s) => s.animation)
@@ -16,91 +29,120 @@ export default function FrameList() {
   const handleLoadSprite = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || pendingFrameIndex.current < 0) return
-
-    // 读取为 base64 data URL，存入 JSON 可直接加载显示
     const reader = new FileReader()
     reader.onload = () => {
       const dataUrl = reader.result as string
       const img = new Image()
       img.onload = () => {
-        // path 存原始文件名方便识别，data 存 base64 供引擎加载
         loadSprite(pendingFrameIndex.current, file.name, dataUrl, img.width, img.height)
       }
-      img.onerror = () => alert('图片加载失败')
+      img.onerror = () => toast.error('图片加载失败')
       img.src = dataUrl
     }
-    reader.onerror = () => alert('图片读取失败')
+    reader.onerror = () => toast.error('图片读取失败')
     reader.readAsDataURL(file)
     e.target.value = ''
   }
 
+  const startLoadSprite = (index: number) => {
+    pendingFrameIndex.current = index
+    spriteInputRef.current?.click()
+  }
+
   return (
-    <div className="left-panel">
-      <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>帧列表</span>
-        <button onClick={addFrame} style={{ fontSize: 11, padding: '2px 8px' }}>+ 添加帧</button>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-center justify-between px-3 py-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">帧列表</span>
+        <Button variant="ghost" size="icon-xs" onClick={addFrame} title="添加帧">
+          <Plus />
+        </Button>
       </div>
+      <Separator />
       <input
         ref={spriteInputRef}
         type="file"
         accept="image/*"
-        style={{ display: 'none' }}
+        className="hidden"
         onChange={handleLoadSprite}
       />
-      <div className="frame-list">
-        {animation.elements.length === 0 && (
-          <div style={{ padding: '20px', color: '#666', fontSize: 12, textAlign: 'center' }}>
-            没有帧
-            <br />
-            点击上方"+ 添加帧"
-          </div>
-        )}
-        {animation.elements.map((elem, i) => (
-          <div
-            key={i}
-            className={`frame-item ${i === currentFrameIndex ? 'active' : ''}`}
-            onClick={() => setFrame(i)}
-          >
-            <span className="frame-number">{i}</span>
-            <div
-              className="frame-thumbnail"
-              style={{
-                backgroundImage: elem.sprite.data ? `url(${elem.sprite.data})` : 'none',
-                backgroundSize: 'contain',
-                backgroundRepeat: 'no-repeat',
-                backgroundPosition: 'center',
-              }}
-            />
-            <div className="frame-info">
-              <div>{elem.duration} Tick</div>
-              <div className="frame-duration">
-                {elem.sprite.w > 0 ? `${elem.sprite.w}×${elem.sprite.h}` : '无图片'}
-              </div>
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="p-1.5">
+          {animation.elements.length === 0 && (
+            <div className="px-3 py-8 text-center text-xs text-muted-foreground">
+              没有帧
+              <br />
+              点击上方 + 添加帧
             </div>
-          </div>
-        ))}
-      </div>
-
-      {/* 帧操作 */}
-      {currentFrameIndex >= 0 && (
-        <div style={{ padding: '8px', borderTop: '1px solid #333', display: 'flex', gap: 4 }}>
-          <button
-            onClick={() => {
-              pendingFrameIndex.current = currentFrameIndex
-              spriteInputRef.current?.click()
-            }}
-            style={{ flex: 1 }}
-          >
-            载入图
-          </button>
-          <button onClick={() => duplicateFrame(currentFrameIndex)}>复制</button>
-          <button
-            onClick={() => removeFrame(currentFrameIndex)}
-            disabled={animation.elements.length <= 1}
-          >
-            删除
-          </button>
+          )}
+          {animation.elements.map((elem, i) => (
+            <ContextMenu key={i}>
+              <ContextMenuTrigger asChild>
+                <div
+                  onClick={() => setFrame(i)}
+                  className={cn(
+                    'flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent',
+                    i === currentFrameIndex && 'bg-accent'
+                  )}
+                >
+                  <span className="w-5 shrink-0 text-xs text-muted-foreground">{i}</span>
+                  <div
+                    className="size-9 shrink-0 rounded border bg-muted"
+                    style={{
+                      backgroundImage: elem.sprite.data ? `url(${elem.sprite.data})` : 'none',
+                      backgroundSize: 'contain',
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'center',
+                    }}
+                  />
+                  <div className="min-w-0 flex-1 text-xs">
+                    <div>{elem.duration} Tick</div>
+                    <div className="text-muted-foreground">
+                      {elem.sprite.w > 0 ? `${elem.sprite.w}×${elem.sprite.h}` : '无图片'}
+                    </div>
+                  </div>
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem onClick={() => startLoadSprite(i)}>
+                  <ImageUp /> 载入图
+                </ContextMenuItem>
+                <ContextMenuItem onClick={() => duplicateFrame(i)}>
+                  <Copy /> 复制帧
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  onClick={() => removeFrame(i)}
+                  disabled={animation.elements.length <= 1}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <Trash2 /> 删除帧
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
+          ))}
         </div>
+      </ScrollArea>
+      {currentFrameIndex >= 0 && (
+        <>
+          <Separator />
+          <div className="flex shrink-0 gap-1 p-1.5">
+            <Button variant="outline" size="sm" className="flex-1" onClick={() => startLoadSprite(currentFrameIndex)}>
+              载入图
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => duplicateFrame(currentFrameIndex)} title="复制帧">
+              <Copy />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => removeFrame(currentFrameIndex)}
+              disabled={animation.elements.length <= 1}
+              title="删除帧"
+            >
+              <Trash2 />
+            </Button>
+          </div>
+        </>
       )}
     </div>
   )

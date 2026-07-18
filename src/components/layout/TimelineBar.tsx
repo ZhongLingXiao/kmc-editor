@@ -1,5 +1,18 @@
 import { useRef, useState, useMemo } from 'react'
 import { useEditorStore } from '../../store/editorStore'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Separator } from '@/components/ui/separator'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { SkipBack, ChevronLeft, Play, Pause, ChevronRight, SkipForward, Repeat, Minus, Plus } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 export default function TimelineBar() {
   const animation = useEditorStore((s) => s.animation)
@@ -18,12 +31,10 @@ export default function TimelineBar() {
   const isLastFrame = currentFrameIndex === animation.elements.length - 1
   const isFirstFrame = currentFrameIndex <= 0
 
-  // 时间轴缩放：每个 tick 占多少像素
-  const [pxPerTick, setPxPerTick] = useState(12) // 默认 12px/tick
+  const [pxPerTick, setPxPerTick] = useState(12)
   const minPxPerTick = 2
   const maxPxPerTick = 40
 
-  // 计算每帧的起始 tick
   const frameStartTicks = useMemo(() => {
     const result: number[] = []
     let acc = 0
@@ -34,35 +45,26 @@ export default function TimelineBar() {
     return result
   }, [animation.elements])
 
-  // 拖拽调整 duration
   const dragRef = useRef<{ frameIndex: number; startX: number; startDur: number; pxPerTick: number } | null>(null)
   const [draggingFrame, setDraggingFrame] = useState<number | null>(null)
-
-  // 拖拽播放头
   const playheadDragRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
-
-  // 缩放滑拽（按住中间数值按钮左右拖动）
   const zoomDragRef = useRef<{ startX: number; startPx: number; moved: boolean } | null>(null)
 
   const handleZoomMouseDown = (e: React.MouseEvent) => {
     e.preventDefault()
     zoomDragRef.current = { startX: e.clientX, startPx: pxPerTick, moved: false }
-
     const onMove = (ev: MouseEvent) => {
       const z = zoomDragRef.current
       if (!z) return
       const delta = ev.clientX - z.startX
       if (Math.abs(delta) > 3) z.moved = true
-      // 往右拖放大、往左拖缩小，每 2px 调整 1 个单位
-      const newPx = Math.max(minPxPerTick, Math.min(maxPxPerTick, Math.round(z.startPx + delta * 0.5)))
-      setPxPerTick(newPx)
+      setPxPerTick(Math.max(minPxPerTick, Math.min(maxPxPerTick, Math.round(z.startPx + delta * 0.5))))
     }
     const onUp = () => {
       const z = zoomDragRef.current
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
-      // 没有显著位移视为单击：恢复默认缩放
       if (z && !z.moved) setPxPerTick(12)
       zoomDragRef.current = null
     }
@@ -79,7 +81,6 @@ export default function TimelineBar() {
     setDraggingFrame(frameIndex)
   }
 
-  // 由鼠标 clientX 计算对应 tick
   const tickFromClientX = (clientX: number): number => {
     const scroll = scrollRef.current
     if (!scroll) return 0
@@ -96,7 +97,6 @@ export default function TimelineBar() {
   }
 
   const handleRulerMouseDown = (e: React.MouseEvent) => {
-    // 点击标尺直接把播放头跳到该 tick
     e.preventDefault()
     setPlaying(false)
     setCurrentTick(tickFromClientX(e.clientX))
@@ -107,8 +107,7 @@ export default function TimelineBar() {
     if (dragRef.current) {
       const { frameIndex, startX, startDur, pxPerTick: pt } = dragRef.current
       const deltaPx = e.clientX - startX
-      const deltaTicks = Math.round(deltaPx / pt)
-      const newDur = Math.max(1, startDur + deltaTicks)
+      const newDur = Math.max(1, startDur + Math.round(deltaPx / pt))
       if (animation.elements[frameIndex]?.duration !== newDur) {
         updateFrame(frameIndex, { duration: newDur })
       }
@@ -130,113 +129,114 @@ export default function TimelineBar() {
     setPlaying(true)
   }
 
-  // 时间轴总宽度
   const timelineWidth = animation.totalTicks * pxPerTick
 
-  // 标尺刻度间隔：选择合适的步长
   const tickStep = useMemo(() => {
-    const minLabelSpacing = 40 // 标签最小间距 40px
-    const minStep = Math.ceil(minLabelSpacing / pxPerTick)
-    // 取整到 1, 2, 5, 10, 20, 50...
+    const minStep = Math.ceil(40 / pxPerTick)
     const steps = [1, 2, 5, 10, 20, 50, 100, 200, 500]
-    for (const s of steps) {
-      if (s >= minStep) return s
-    }
+    for (const s of steps) if (s >= minStep) return s
     return 500
   }, [pxPerTick])
 
-  // 标尺刻度
   const rulerTicks = useMemo(() => {
     const ticks: number[] = []
-    for (let t = 0; t <= animation.totalTicks; t += tickStep) {
-      ticks.push(t)
-    }
+    for (let t = 0; t <= animation.totalTicks; t += tickStep) ticks.push(t)
     return ticks
   }, [animation.totalTicks, tickStep])
 
-  // 滚轮缩放时间轴
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault()
     const delta = e.deltaY > 0 ? -2 : 2
     setPxPerTick((prev) => Math.max(minPxPerTick, Math.min(maxPxPerTick, prev + delta)))
   }
 
+  const TBtn = ({ children, onClick, disabled, title }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean; title: string }) => (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="ghost" size="icon-sm" onClick={onClick} disabled={disabled}>
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{title}</TooltipContent>
+    </Tooltip>
+  )
+
   return (
-    <div className="timeline-container" onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
-      {/* 顶部：控制按钮 */}
-      <div className="timeline-controls">
-        <button onClick={() => { setPlaying(false); setFrame(0) }} disabled={!hasFrames} title="回到第一帧">⏮</button>
-        <button onClick={() => { setPlaying(false); if (currentFrameIndex > 0) setFrame(currentFrameIndex - 1) }} disabled={!hasFrames || isFirstFrame} title="上一帧 (←)">◀</button>
-        {isPlaying ? (
-          <button onClick={() => setPlaying(false)} disabled={!hasFrames} title="暂停 (空格)" style={{ minWidth: 56 }}>⏸ 暂停</button>
-        ) : (
-          <button onClick={handlePlay} disabled={!hasFrames} title="播放 (空格)" style={{ minWidth: 56 }}>▶ 播放</button>
-        )}
-        <button onClick={() => { setPlaying(false); if (!isLastFrame) setFrame(currentFrameIndex + 1) }} disabled={!hasFrames || isLastFrame} title="下一帧 (→)">▶</button>
-        <button onClick={() => { setPlaying(false); setFrame(animation.elements.length - 1) }} disabled={!hasFrames} title="跳到最后一帧">⏭</button>
+    <div className="flex shrink-0 flex-col border-t bg-card" onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
+      <div className="flex h-[38px] items-center gap-1 border-b px-2">
+        <TBtn title="第一帧" onClick={() => { setPlaying(false); setFrame(0) }} disabled={!hasFrames}><SkipBack /></TBtn>
+        <TBtn title="上一帧 (←)" onClick={() => { setPlaying(false); if (currentFrameIndex > 0) setFrame(currentFrameIndex - 1) }} disabled={!hasFrames || isFirstFrame}><ChevronLeft /></TBtn>
+        <TBtn title={isPlaying ? '暂停 (空格)' : '播放 (空格)'} onClick={() => isPlaying ? setPlaying(false) : handlePlay()} disabled={!hasFrames}>
+          {isPlaying ? <Pause /> : <Play />}
+        </TBtn>
+        <TBtn title="下一帧 (→)" onClick={() => { setPlaying(false); if (!isLastFrame) setFrame(currentFrameIndex + 1) }} disabled={!hasFrames || isLastFrame}><ChevronRight /></TBtn>
+        <TBtn title="最后帧" onClick={() => { setPlaying(false); setFrame(animation.elements.length - 1) }} disabled={!hasFrames}><SkipForward /></TBtn>
 
-        <div className="toolbar-separator" />
+        <Separator orientation="vertical" className="mx-1 h-5" />
 
-        <button className={animation.loop ? 'active' : ''} onClick={() => updateAnimationMeta({ loop: !animation.loop })} disabled={!hasFrames} title="循环播放" style={{ minWidth: 36 }}>🔁</button>
+        <TBtn title="循环播放" onClick={() => updateAnimationMeta({ loop: !animation.loop })} disabled={!hasFrames}>
+          <Repeat className={cn(animation.loop && 'text-primary')} />
+        </TBtn>
 
-        <div className="toolbar-separator" />
+        <Separator orientation="vertical" className="mx-1 h-5" />
 
-        <span className="toolbar-label">速度</span>
-        <select value={playSpeed} onChange={(e) => setPlaySpeed(parseFloat(e.target.value))} style={{ background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#ddd', padding: '3px 4px', borderRadius: 3, fontSize: 11 }}>
-          <option value={0.25}>0.25x</option>
-          <option value={0.5}>0.5x</option>
-          <option value={1}>1x (60fps)</option>
-          <option value={2}>2x</option>
-        </select>
+        <Select value={String(playSpeed)} onValueChange={(v) => setPlaySpeed(parseFloat(v))}>
+          <SelectTrigger className="h-7 w-[88px]"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="0.25">0.25x</SelectItem>
+            <SelectItem value="0.5">0.5x</SelectItem>
+            <SelectItem value="1">1x (60fps)</SelectItem>
+            <SelectItem value="2">2x</SelectItem>
+          </SelectContent>
+        </Select>
 
-        <div className="toolbar-separator" />
+        <Separator orientation="vertical" className="mx-1 h-5" />
 
-        <span className="toolbar-label" style={{ fontSize: 11 }}>
+        <Badge variant="secondary" className="font-normal">
           帧 {currentFrameIndex >= 0 ? currentFrameIndex : '-'}/{hasFrames ? animation.elements.length - 1 : 0}
-        </span>
-        <span className="toolbar-label" style={{ fontSize: 11, color: '#ff8866' }}>
+        </Badge>
+        <Badge variant="secondary" className="font-normal text-orange-600">
           Tick {currentTick}/{animation.totalTicks}
-        </span>
+        </Badge>
 
-        <div style={{ flex: 1 }} />
+        <div className="flex-1" />
 
-        {/* 时间轴缩放 */}
-        <span className="toolbar-label" style={{ fontSize: 11 }}>缩放</span>
-        <button onClick={() => setPxPerTick((p) => Math.max(minPxPerTick, p - 2))} title="缩小时间轴" style={{ minWidth: 28, padding: '2px 4px' }}>−</button>
-        <button onMouseDown={handleZoomMouseDown} title="左右拖动调节缩放，单击恢复默认" style={{ minWidth: 36, padding: '2px 4px', cursor: 'ew-resize', userSelect: 'none' }}>{pxPerTick}px</button>
-        <button onClick={() => setPxPerTick((p) => Math.min(maxPxPerTick, p + 2))} title="放大时间轴" style={{ minWidth: 28, padding: '2px 4px' }}>+</button>
+        <span className="text-xs text-muted-foreground">缩放</span>
+        <Button variant="outline" size="icon-sm" onClick={() => setPxPerTick((p) => Math.max(minPxPerTick, p - 2))} title="缩小"><Minus /></Button>
+        <Button variant="outline" size="sm" className="h-7 cursor-ew-resize px-2" onMouseDown={handleZoomMouseDown} title="左右拖动调节，单击恢复">{pxPerTick}px</Button>
+        <Button variant="outline" size="icon-sm" onClick={() => setPxPerTick((p) => Math.min(maxPxPerTick, p + 2))} title="放大"><Plus /></Button>
       </div>
 
-      {/* 底部：标尺 + 帧时间轴 */}
-      <div className="timeline-scroll" ref={scrollRef} onWheel={handleWheel} style={{ overflowX: 'auto', overflowY: 'hidden' }}>
-        <div style={{ width: Math.max(timelineWidth, 100), position: 'relative' }}>
-          {/* 标尺：点击/拖拽可移动播放头 */}
-          <div className="timeline-ruler" onMouseDown={handleRulerMouseDown} style={{ cursor: 'pointer' }}>
+      <div ref={scrollRef} className="relative h-[54px] overflow-x-auto overflow-y-hidden" onWheel={handleWheel}>
+        <div className="relative" style={{ width: Math.max(timelineWidth, 100) }}>
+          <div className="relative h-[18px] cursor-pointer border-b bg-card" onMouseDown={handleRulerMouseDown}>
             {rulerTicks.map((tick) => (
-              <div key={tick} className="timeline-ruler-tick" style={{ left: tick * pxPerTick }}>
-                <div className="timeline-ruler-line" />
-                <span className="timeline-ruler-label">{tick}</span>
+              <div key={tick} className="absolute bottom-0 top-0" style={{ left: tick * pxPerTick }}>
+                <div className="mx-auto h-2 w-px bg-muted-foreground/40" />
+                <span className="absolute left-0.5 top-2 whitespace-nowrap text-[9px] text-muted-foreground">{tick}</span>
               </div>
             ))}
           </div>
 
-          {/* 帧条 */}
-          <div className="timeline-frames-row">
+          <div className="relative h-[36px]">
             {animation.elements.map((elem, i) => {
               const width = elem.duration * pxPerTick
               const left = frameStartTicks[i] * pxPerTick
               return (
                 <div
                   key={i}
-                  className={`timeline-frame ${i === currentFrameIndex ? 'active' : ''} ${draggingFrame === i ? 'dragging' : ''}`}
-                  style={{ width, minWidth: 1, position: 'absolute', left }}
+                  className={cn(
+                    'absolute flex h-full cursor-pointer flex-col justify-center overflow-hidden border-l border-r border-transparent px-1 select-none hover:bg-accent',
+                    i === currentFrameIndex && 'bg-accent border-l-primary',
+                    draggingFrame === i && 'border-r-2 border-r-primary'
+                  )}
+                  style={{ width, minWidth: 1, left }}
                   onClick={() => setFrame(i)}
                 >
-                  {width >= 30 && <div className="timeline-frame-elem">F{i}</div>}
-                  {width >= 50 && <div className="timeline-frame-dur">{elem.duration}t</div>}
-                  {/* 拖拽手柄 */}
+                  {width >= 30 && <div className="whitespace-nowrap text-[10px] text-muted-foreground">F{i}</div>}
+                  {width >= 50 && <div className="whitespace-nowrap text-[10px] text-muted-foreground">{elem.duration}t</div>}
                   <div
-                    className="timeline-frame-handle"
+                    className="absolute right-[-4px] top-0 bottom-0 w-2 cursor-ew-resize hover:bg-primary/30"
                     onMouseDown={(e) => handleDurMouseDown(e, i)}
                     onClick={(e) => e.stopPropagation()}
                   />
@@ -245,17 +245,12 @@ export default function TimelineBar() {
             })}
           </div>
 
-          {/* 播放头：按 tick 定位，可拖拽，不限制在帧之间；跨越标尺与帧条 */}
           {hasFrames && (
-            <div
-              className="timeline-playhead"
-              style={{ left: currentTick * pxPerTick }}
-            >
-              {/* 透明宽抓取区，方便拖拽 */}
-              <div className="timeline-playhead-grip" onMouseDown={handlePlayheadMouseDown} />
-              <div className="timeline-playhead-line" />
-              <div className="timeline-playhead-head" />
-              <div className="timeline-playhead-label">{currentTick}</div>
+            <div className="pointer-events-none absolute bottom-0 top-0 z-10 w-0.5" style={{ left: currentTick * pxPerTick }}>
+              <div className="pointer-events-auto absolute left-[-5px] bottom-0 top-0 w-3 cursor-ew-resize" onMouseDown={handlePlayheadMouseDown} />
+              <div className="mx-auto h-full w-0.5 bg-red-500" />
+              <div className="absolute left-[-5px] top-0 h-0 w-0 border-l-[6px] border-r-[6px] border-t-[8px] border-l-transparent border-r-transparent border-t-red-500" />
+              <div className="absolute left-1.5 top-2 whitespace-nowrap rounded bg-background px-1 text-[9px] text-red-500">{currentTick}</div>
             </div>
           )}
         </div>

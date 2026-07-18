@@ -1,6 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import { useEditorStore } from '../../store/editorStore'
 import EditorCanvas from '../canvas/EditorCanvas'
+import { Badge } from '@/components/ui/badge'
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubTrigger,
+  ContextMenuSubContent,
+} from '@/components/ui/context-menu'
+import { spaceState } from '../../lib/space-pan'
+import { Tool } from '../../types/animation'
 
 export default function CanvasArea() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -11,99 +24,149 @@ export default function CanvasArea() {
   const resetView = useEditorStore((s) => s.resetView)
   const panX = useEditorStore((s) => s.panX)
   const panY = useEditorStore((s) => s.panY)
+  const setTool = useEditorStore((s) => s.setTool)
+  const setOffset = useEditorStore((s) => s.setOffset)
+  const addFrame = useEditorStore((s) => s.addFrame)
+  const currentFrameIndex = useEditorStore((s) => s.currentFrameIndex)
+  const animation = useEditorStore((s) => s.animation)
+  const showLayers = useEditorStore((s) => s.showLayers)
+  const toggleLayer = useEditorStore((s) => s.toggleLayer)
 
-  // 平移状态
   const [isPanning, setIsPanning] = useState(false)
   const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 })
-  const [cursor, setCursor] = useState<string>('default')
+  const [spaceHeld, setSpaceHeld] = useState(false)
 
   // 自适应画布大小
   useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
     const updateSize = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect()
-        setCanvasSize(rect.width, rect.height)
-      }
+      const rect = el.getBoundingClientRect()
+      setCanvasSize(rect.width, rect.height)
     }
     updateSize()
-    window.addEventListener('resize', updateSize)
-    return () => window.removeEventListener('resize', updateSize)
+    const ro = new ResizeObserver(updateSize)
+    ro.observe(el)
+    return () => ro.disconnect()
   }, [setCanvasSize])
 
-  // 滚轮缩放
+  // 跟踪空格按下（用于显示抓取光标）
+  useEffect(() => {
+    const onDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space') setSpaceHeld(true)
+    }
+    const onUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') setSpaceHeld(false)
+    }
+    window.addEventListener('keydown', onDown)
+    window.addEventListener('keyup', onUp)
+    return () => {
+      window.removeEventListener('keydown', onDown)
+      window.removeEventListener('keyup', onUp)
+    }
+  }, [])
+
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault()
     const delta = e.deltaY > 0 ? -0.1 : 0.1
     setScale(scale + delta * scale)
   }
 
-  // 右键或中键开始平移
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button === 2 || e.button === 1) {
-      // 右键或中键拖拽平移
+    // 中键 或 按住空格 → 平移
+    if (e.button === 1 || spaceState.held) {
       e.preventDefault()
       setIsPanning(true)
       panStart.current = { x: e.clientX, y: e.clientY, panX, panY }
-      setCursor('grabbing')
     }
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isPanning) return
+    if (spaceState.held) spaceState.panned = true
     const dx = e.clientX - panStart.current.x
     const dy = e.clientY - panStart.current.y
     setPan(panStart.current.panX + dx, panStart.current.panY + dy)
   }
 
   const handleMouseUp = () => {
-    if (isPanning) {
-      setIsPanning(false)
-      setCursor('default')
-    }
+    if (isPanning) setIsPanning(false)
   }
 
-  // 右键菜单禁用（否则会弹出浏览器菜单）
-  const handleContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault()
-  }
+  const frame = currentFrameIndex >= 0 ? animation.elements[currentFrameIndex] : null
 
-  // 双击重置视图
-  const handleDoubleClick = (e: React.MouseEvent) => {
-    if (e.button === 0) {
-      resetView()
-    }
-  }
+  const cursor = isPanning ? 'grabbing' : spaceHeld ? 'grab' : 'default'
+
+  const tools: { id: Tool; label: string }[] = [
+    { id: 'select', label: '选择' },
+    { id: 'anchor', label: '精灵对齐' },
+    { id: 'hurtbox', label: '受击框' },
+    { id: 'hitbox', label: '攻击框' },
+    { id: 'jcbox', label: 'JC框' },
+    { id: 'pushbox', label: '推挤框' },
+    { id: 'spawnpoint', label: '发射点' },
+  ]
 
   return (
-    <div className="canvas-area">
-      <div
-        ref={containerRef}
-        className="canvas-container"
-        onWheel={handleWheel}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onContextMenu={handleContextMenu}
-        onDoubleClick={handleDoubleClick}
-        style={{ cursor }}
-      >
-        <EditorCanvas />
-      </div>
-      {/* 缩放和平移提示 */}
-      <div style={{
-        position: 'absolute',
-        bottom: 8,
-        right: 12,
-        fontSize: 11,
-        color: '#666',
-        pointerEvents: 'none',
-        background: 'rgba(30,30,30,0.8)',
-        padding: '4px 8px',
-        borderRadius: 3,
-      }}>
-        缩放: {Math.round(scale * 100)}% | 右键拖拽平移 | 双击重置
-      </div>
+    <div className="relative flex min-w-0 flex-1 flex-col bg-muted">
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            ref={containerRef}
+            className="relative flex flex-1 items-center justify-center overflow-hidden"
+            onWheel={handleWheel}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+            style={{ cursor }}
+          >
+            <EditorCanvas />
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>切换工具</ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              {tools.map((t) => (
+                <ContextMenuItem key={t.id} onClick={() => setTool(t.id)}>
+                  {t.label}
+                </ContextMenuItem>
+              ))}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuSeparator />
+          {frame && frame.sprite.w > 0 && (
+            <>
+              <ContextMenuItem onClick={() => setOffset(currentFrameIndex, Math.round(frame.sprite.w / 2), frame.sprite.h)}>
+                设为脚底中心
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => setOffset(currentFrameIndex, Math.round(frame.sprite.w / 2), Math.round(frame.sprite.h / 2))}>
+                设为图片中心
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+            </>
+          )}
+          <ContextMenuItem onClick={() => addFrame()}>新建帧</ContextMenuItem>
+          <ContextMenuItem onClick={() => resetView()}>重置视图</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>切换图层</ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              <ContextMenuItem onClick={() => toggleLayer('grid')}>
+                {showLayers.grid ? '✓ ' : ''}网格
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => toggleLayer('onionSkin')}>
+                {showLayers.onionSkin ? '✓ ' : ''}洋葱皮
+              </ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        </ContextMenuContent>
+      </ContextMenu>
+
+      <Badge variant="secondary" className="pointer-events-none absolute bottom-2 right-3 font-normal">
+        缩放 {Math.round(scale * 100)}%
+      </Badge>
     </div>
   )
 }

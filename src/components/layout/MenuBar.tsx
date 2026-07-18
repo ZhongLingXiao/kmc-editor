@@ -1,20 +1,32 @@
-import { useRef, useState, useEffect } from 'react'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Separator } from '@/components/ui/separator'
+import {
+  Menubar,
+  MenubarMenu,
+  MenubarTrigger,
+  MenubarContent,
+  MenubarItem,
+  MenubarSeparator,
+  MenubarCheckboxItem,
+  MenubarShortcut,
+} from '@/components/ui/menubar'
+import { Undo2, Redo2 } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { exportAnimation, importAnimation } from '../../utils/export'
-import { Tool } from '../../types/animation'
+import { toast } from 'sonner'
+import { useRef, useState, useEffect } from 'react'
 
 interface FileHandle {
   name: string
   save: (data: string) => Promise<void>
 }
 
-// 全局文件句柄（保存当前打开的文件）
 let currentFileHandle: any = null
 
 export function getCurrentFileHandle() {
   return currentFileHandle
 }
-
 export function setCurrentFileHandle(handle: any) {
   currentFileHandle = handle
 }
@@ -23,12 +35,12 @@ export default function MenuBar() {
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const animation = useEditorStore((s) => s.animation)
   const setAnimation = useEditorStore((s) => s.setAnimation)
-  const tool = useEditorStore((s) => s.tool)
-  const setTool = useEditorStore((s) => s.setTool)
+  const showLayers = useEditorStore((s) => s.showLayers)
+  const toggleLayer = useEditorStore((s) => s.toggleLayer)
+  const resetView = useEditorStore((s) => s.resetView)
 
   const menuRef = useRef<HTMLDivElement>(null)
 
-  // 点击外部关闭菜单
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -45,9 +57,6 @@ export default function MenuBar() {
   const canUndo = temporalState.pastStates.length > 0
   const canRedo = temporalState.futureStates.length > 0
 
-  // === 文件操作 ===
-
-  // 新建
   const handleNew = () => {
     if (animation.elements.length > 0 && !confirm('新建会清空当前内容，是否继续？')) return
     currentFileHandle = null
@@ -63,7 +72,6 @@ export default function MenuBar() {
     setOpenMenu(null)
   }
 
-  // 打开（File System Access API）
   const handleOpen = async () => {
     try {
       // @ts-ignore - File System Access API
@@ -74,18 +82,16 @@ export default function MenuBar() {
       const data = await importAnimation(file)
       currentFileHandle = handle
       setAnimation(data)
+      toast.success(`已打开 ${data.name}`)
     } catch (err) {
       // 用户取消或浏览器不支持
     }
     setOpenMenu(null)
   }
 
-  // 保存（Ctrl+S）- 如果已有文件句柄则直接写入，否则另存为
   const handleSave = async () => {
-    // 保存前把编辑器设置写入 metadata
     useEditorStore.getState().syncMetadata()
     const anim = useEditorStore.getState().animation
-
     if (currentFileHandle) {
       try {
         const writable = await currentFileHandle.createWritable()
@@ -93,8 +99,9 @@ export default function MenuBar() {
         const data = { ...anim, totalTicks }
         await writable.write(JSON.stringify(data, null, 2))
         await writable.close()
+        toast.success('已保存')
       } catch (err) {
-        alert('保存失败：' + (err as Error).message)
+        toast.error('保存失败：' + (err as Error).message)
       }
     } else {
       await handleSaveAs()
@@ -102,11 +109,9 @@ export default function MenuBar() {
     setOpenMenu(null)
   }
 
-  // 另存为
   const handleSaveAs = async () => {
     useEditorStore.getState().syncMetadata()
     const anim = useEditorStore.getState().animation
-
     try {
       // @ts-ignore
       const handle = await window.showSaveFilePicker({
@@ -119,104 +124,115 @@ export default function MenuBar() {
       await writable.write(JSON.stringify(data, null, 2))
       await writable.close()
       currentFileHandle = handle
+      toast.success('已另存为')
     } catch (err) {
       // 用户取消
     }
     setOpenMenu(null)
   }
 
-  // 导出（下载，不用 File System API）
   const handleExport = () => {
     exportAnimation(animation)
     setOpenMenu(null)
   }
 
-  // === 菜单定义 ===
-  const menus: Record<string, { label: string; action: () => void; shortcut?: string; disabled?: boolean; id?: string }[]> = {
-    文件: [
-      { label: '新建', action: handleNew, shortcut: 'Ctrl+N', id: 'menu-new' },
-      { label: '打开...', action: handleOpen, shortcut: 'Ctrl+O', id: 'menu-open' },
-      { label: '保存', action: handleSave, shortcut: 'Ctrl+S', id: 'menu-save' },
-      { label: '另存为...', action: handleSaveAs, shortcut: 'Ctrl+Shift+S', id: 'menu-saveas' },
-      { label: '导出（下载）', action: handleExport, id: 'menu-export' },
-    ],
-    编辑: [
-      { label: '撤销', action: undo, shortcut: 'Ctrl+Z', disabled: !canUndo, id: 'menu-undo' },
-      { label: '重做', action: redo, shortcut: 'Ctrl+Y', disabled: !canRedo, id: 'menu-redo' },
-    ],
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const data = await importAnimation(file)
+      setAnimation(data)
+      toast.success(`已导入 ${data.name}`)
+    } catch (err) {
+      toast.error('导入失败：' + (err as Error).message)
+    }
+    e.target.value = ''
   }
 
   return (
-    <div className="menubar" ref={menuRef}>
-      {Object.entries(menus).map(([menuName, items]) => (
-        <div
-          key={menuName}
-          className={`menu-item ${openMenu === menuName ? 'active' : ''}`}
-          onClick={() => setOpenMenu(openMenu === menuName ? null : menuName)}
-          onMouseEnter={() => openMenu && setOpenMenu(menuName)}
-        >
-          {menuName}
-          {openMenu === menuName && (
-            <div className="menu-dropdown">
-              {items.map((item, i) => (
-                <div
-                  key={i}
-                  id={item.id}
-                  className={`menu-dropdown-item ${item.disabled ? 'disabled' : ''}`}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    if (!item.disabled) item.action()
-                  }}
-                >
-                  <span>{item.label}</span>
-                  {item.shortcut && <span className="menu-shortcut">{item.shortcut}</span>}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      ))}
+    <div className="flex h-9 shrink-0 items-center gap-1 border-b bg-card px-2" ref={menuRef}>
+      <Menubar>
+        <MenubarMenu>
+          <MenubarTrigger>文件</MenubarTrigger>
+          <MenubarContent>
+            <MenubarItem id="menu-new" onClick={handleNew}>
+              新建 <MenubarShortcut>Ctrl+N</MenubarShortcut>
+            </MenubarItem>
+            <MenubarItem id="menu-open" onClick={handleOpen}>
+              打开... <MenubarShortcut>Ctrl+O</MenubarShortcut>
+            </MenubarItem>
+            <MenubarSeparator />
+            <MenubarItem id="menu-save" onClick={handleSave}>
+              保存 <MenubarShortcut>Ctrl+S</MenubarShortcut>
+            </MenubarItem>
+            <MenubarItem id="menu-saveas" onClick={handleSaveAs}>
+              另存为... <MenubarShortcut>Ctrl+Shift+S</MenubarShortcut>
+            </MenubarItem>
+            <MenubarSeparator />
+            <MenubarItem onClick={() => fileInputRef.current?.click()}>导入 JSON...</MenubarItem>
+            <MenubarItem id="menu-export" onClick={handleExport}>导出（下载）</MenubarItem>
+          </MenubarContent>
+        </MenubarMenu>
 
-      <div style={{ flex: 1 }} />
+        <MenubarMenu>
+          <MenubarTrigger>编辑</MenubarTrigger>
+          <MenubarContent>
+            <MenubarItem onClick={undo} disabled={!canUndo}>
+              撤销 <MenubarShortcut>Ctrl+Z</MenubarShortcut>
+            </MenubarItem>
+            <MenubarItem onClick={redo} disabled={!canRedo}>
+              重做 <MenubarShortcut>Ctrl+Y</MenubarShortcut>
+            </MenubarItem>
+          </MenubarContent>
+        </MenubarMenu>
 
-      {/* 工具栏：编辑类 / 创建类分组 */}
-      <div className="menu-tools">
-        <span className="toolbar-label">编辑:</span>
-        {([
-          { id: 'select', label: '选择', icon: '↖', hint: '选择/移动/缩放元素（选中后方向键微调，Shift+拖拽锁主轴向）' },
-          { id: 'anchor', label: '精灵对齐', icon: '✥', hint: '精灵对齐（拖拽移动精灵；按住 Shift 拖拽锁定主轴向）' },
-        ] as { id: Tool; label: string; icon: string; hint?: string }[]).map((t) => (
-          <button
-            key={t.id}
-            className={`tool-button tool-${t.id} ${tool === t.id ? 'active' : ''}`}
-            onClick={() => setTool(t.id)}
-            title={t.hint ?? t.label}
-          >
-            {t.icon} {t.label}
-          </button>
-        ))}
-        <div className="toolbar-separator" />
-        <span className="toolbar-label">创建:</span>
-        {([
-          { id: 'hurtbox', label: '受击框', icon: '▣' },
-          { id: 'hitbox', label: '攻击框', icon: '⚔' },
-          { id: 'jcbox', label: 'JC框', icon: '◈' },
-          { id: 'pushbox', label: '推挤框', icon: '▭' },
-          { id: 'spawnpoint', label: '发射点', icon: '●' },
-        ] as { id: Tool; label: string; icon: string }[]).map((t) => (
-          <button
-            key={t.id}
-            className={`tool-button tool-${t.id} ${tool === t.id ? 'active' : ''}`}
-            onClick={() => setTool(t.id)}
-            title={t.label}
-          >
-            {t.icon} {t.label}
-          </button>
-        ))}
-      </div>
+        <MenubarMenu>
+          <MenubarTrigger>视图</MenubarTrigger>
+          <MenubarContent>
+            <MenubarItem onClick={() => { resetView(); setOpenMenu(null) }}>
+              重置视图
+            </MenubarItem>
+            <MenubarSeparator />
+            <MenubarCheckboxItem
+              checked={showLayers.grid}
+              onClick={() => toggleLayer('grid')}
+            >
+              显示网格
+            </MenubarCheckboxItem>
+            <MenubarCheckboxItem
+              checked={showLayers.onionSkin}
+              onClick={() => toggleLayer('onionSkin')}
+            >
+              显示洋葱皮
+            </MenubarCheckboxItem>
+          </MenubarContent>
+        </MenubarMenu>
+      </Menubar>
 
-      <div className="toolbar-separator" />
-      <span className="toolbar-label">{animation.name} ({animation.elements.length} 帧)</span>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json"
+        className="hidden"
+        onChange={handleImport}
+      />
+
+      <div className="flex-1" />
+
+      <Badge variant="secondary" className="gap-1 font-normal">
+        {animation.name}
+        <span className="text-muted-foreground">{animation.elements.length} 帧</span>
+      </Badge>
+
+      <Separator orientation="vertical" className="mx-1 h-5" />
+
+      <Button variant="ghost" size="icon-sm" onClick={undo} disabled={!canUndo} title="撤销 Ctrl+Z">
+        <Undo2 />
+      </Button>
+      <Button variant="ghost" size="icon-sm" onClick={redo} disabled={!canRedo} title="重做 Ctrl+Y">
+        <Redo2 />
+      </Button>
     </div>
   )
 }

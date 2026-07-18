@@ -1,9 +1,15 @@
 import { useEffect, useRef } from 'react'
 import { useEditorStore } from './store/editorStore'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { Toaster } from '@/components/ui/sonner'
+import { spaceState } from './lib/space-pan'
 import MenuBar from './components/layout/MenuBar'
+import ToolRail from './components/layout/ToolRail'
 import FrameList from './components/layout/FrameList'
+import Outline from './components/layout/Outline'
 import CanvasArea from './components/layout/CanvasArea'
-import PropertyPanel from './components/layout/PropertyPanel'
+import Inspector from './components/layout/Inspector'
+import SettingsPanel from './components/layout/SettingsPanel'
 import TimelineBar from './components/layout/TimelineBar'
 
 export default function App() {
@@ -46,10 +52,25 @@ export default function App() {
 
   // 键盘快捷键
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+    const isInput = (t: EventTarget | null) =>
+      t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || (t instanceof HTMLElement && t.isContentEditable)
 
-      // Esc 取消选中（取消后方向键回到切换帧）
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isInput(e.target)) return
+      const ctrl = e.ctrlKey || e.metaKey
+
+      // 空格：按住用于平移，轻点用于播放/暂停（播放判断放在 keyup）
+      if (e.code === 'Space') {
+        if (!spaceState.held) {
+          spaceState.held = true
+          spaceState.panned = false
+          spaceState.downAt = Date.now()
+        }
+        e.preventDefault()
+        return
+      }
+
+      // Esc 取消选中
       if (e.key === 'Escape') {
         const { selectedBoxId, selectBox } = useEditorStore.getState()
         if (selectedBoxId) {
@@ -58,8 +79,6 @@ export default function App() {
         }
         return
       }
-
-      const ctrl = e.ctrlKey || e.metaKey
 
       // 文件操作
       if (ctrl && e.key === 's' && !e.shiftKey) {
@@ -96,14 +115,9 @@ export default function App() {
         } else if (selectedBoxType === 'spawnpoint') {
           state.removeSpawnPoint(selectedBoxId)
         }
-      } else if (e.key === ' ') {
-        e.preventDefault()
-        const { isPlaying, setPlaying, animation } = useEditorStore.getState()
-        if (animation.elements.length > 0) setPlaying(!isPlaying)
       } else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
         const state = useEditorStore.getState()
         const step = e.shiftKey ? 10 : 1
-        // 逻辑坐标增量（x 向右为正，y 向上为正）
         let dx = 0
         let dy = 0
         if (e.key === 'ArrowLeft') dx = -step
@@ -112,24 +126,17 @@ export default function App() {
         if (e.key === 'ArrowDown') dy = -step
 
         if (state.tool === 'anchor' && state.currentFrameIndex >= 0) {
-          // 精灵对齐：方向键微调精灵轴点（pivot 方向与逻辑坐标相反）
           e.preventDefault()
           const frame = state.animation.elements[state.currentFrameIndex]
           if (!frame) return
           state.setOffset(state.currentFrameIndex, frame.offset.x - dx, frame.offset.y + dy)
-        } else if (
-          state.tool === 'select' &&
-          state.selectedBoxType &&
-          state.selectedBoxId
-        ) {
-          // 选择模式且有选中元素：方向键微调选中元素位置（1px / Shift=10px）
+        } else if (state.tool === 'select' && state.selectedBoxType && state.selectedBoxId) {
           e.preventDefault()
           const { selectedBoxType: t, selectedBoxId: id } = state
           if (t === 'hurtbox' || t === 'hitbox' || t === 'jcbox') {
             const frame = state.animation.elements[state.currentFrameIndex]
             if (!frame) return
-            const list =
-              t === 'hurtbox' ? frame.hurtboxes : t === 'hitbox' ? frame.hitboxes : frame.jcboxes
+            const list = t === 'hurtbox' ? frame.hurtboxes : t === 'hitbox' ? frame.hitboxes : frame.jcboxes
             const box = list.find((b) => b.id === id)
             if (!box) return
             state.updateBox(t, id, { x: box.x + dx, y: box.y + dy })
@@ -145,7 +152,6 @@ export default function App() {
             state.updatePushbox('stand', { x: pb.x + dx, y: pb.y + dy })
           }
         } else if (e.key === 'ArrowLeft') {
-          // 无选中：← → 切换帧
           if (state.currentFrameIndex > 0) state.setFrame(state.currentFrameIndex - 1)
         } else if (e.key === 'ArrowRight') {
           if (state.currentFrameIndex < state.animation.elements.length - 1) {
@@ -160,19 +166,46 @@ export default function App() {
         useEditorStore.temporal.getState().redo()
       }
     }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        const wasHeld = spaceState.held
+        spaceState.held = false
+        // 轻点（短按且未发生平移）= 播放/暂停
+        if (wasHeld && !spaceState.panned && Date.now() - spaceState.downAt < 300) {
+          const { isPlaying, setPlaying, animation } = useEditorStore.getState()
+          if (animation.elements.length > 0) setPlaying(!isPlaying)
+        }
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+    }
   }, [])
 
   return (
-    <div className="app-layout">
-      <MenuBar />
-      <div className="app-body">
-        <FrameList />
-        <CanvasArea />
-        <PropertyPanel />
+    <TooltipProvider delayDuration={300}>
+      <div className="flex h-full w-full flex-col overflow-hidden bg-background text-foreground">
+        <MenuBar />
+        <div className="flex min-h-0 flex-1">
+          <ToolRail />
+          <div className="flex w-[220px] min-w-0 flex-col border-r bg-card">
+            <FrameList />
+            <Outline />
+          </div>
+          <CanvasArea />
+          <div className="flex w-[320px] min-w-0 flex-col border-l bg-card">
+            <Inspector />
+            <SettingsPanel />
+          </div>
+        </div>
+        <TimelineBar />
       </div>
-      <TimelineBar />
-    </div>
+      <Toaster richColors position="bottom-right" />
+    </TooltipProvider>
   )
 }
