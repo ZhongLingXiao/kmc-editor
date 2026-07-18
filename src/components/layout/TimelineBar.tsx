@@ -1,4 +1,4 @@
-import { useRef, useState, useMemo } from 'react'
+import { useRef, useState, useMemo, useEffect } from 'react'
 import { useEditorStore } from '../../store/editorStore'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -11,8 +11,9 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select'
-import { SkipBack, ChevronLeft, Play, Pause, ChevronRight, SkipForward, Repeat, Minus, Plus } from 'lucide-react'
+import { SkipBack, ChevronLeft, Play, Pause, ChevronRight, SkipForward, Repeat } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Kbd } from '@/components/ui/kbd'
 
 function TBtn({ children, onClick, disabled, title }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean; title: string }) {
   return (
@@ -63,28 +64,18 @@ export default function TimelineBar() {
   const [draggingFrame, setDraggingFrame] = useState<number | null>(null)
   const playheadDragRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const zoomDragRef = useRef<{ startX: number; startPx: number; moved: boolean } | null>(null)
 
-  const handleZoomMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault()
-    zoomDragRef.current = { startX: e.clientX, startPx: pxPerTick, moved: false }
-    const onMove = (ev: MouseEvent) => {
-      const z = zoomDragRef.current
-      if (!z) return
-      const delta = ev.clientX - z.startX
-      if (Math.abs(delta) > 3) z.moved = true
-      setPxPerTick(Math.max(minPxPerTick, Math.min(maxPxPerTick, Math.round(z.startPx + delta * 0.5))))
-    }
-    const onUp = () => {
-      const z = zoomDragRef.current
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-      if (z && !z.moved) setPxPerTick(12)
-      zoomDragRef.current = null
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }
+  // 测量滚动容器可视宽度，用于标尺铺满（即使无帧也有完整刻度尺）
+  const [viewWidth, setViewWidth] = useState(0)
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const update = () => setViewWidth(el.clientWidth)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   const handleDurMouseDown = (e: React.MouseEvent, frameIndex: number) => {
     e.preventDefault()
@@ -144,6 +135,10 @@ export default function TimelineBar() {
   }
 
   const timelineWidth = animation.totalTicks * pxPerTick
+  // 内容宽度：至少铺满可视区，避免空场景标尺缩成一团
+  const contentWidth = Math.max(timelineWidth, viewWidth, 100)
+  // 仅当内容真的超出可视区时才允许横向滚动，否则 hidden 避免空场景误出滚动条
+  const canScroll = viewWidth > 0 && timelineWidth > viewWidth
 
   const tickStep = useMemo(() => {
     const minStep = Math.ceil(40 / pxPerTick)
@@ -152,11 +147,13 @@ export default function TimelineBar() {
     return 500
   }, [pxPerTick])
 
+  // 刻度铺满整个内容宽度（超出 totalTicks 的部分也画刻度，仅作标尺参考）
   const rulerTicks = useMemo(() => {
     const ticks: number[] = []
-    for (let t = 0; t <= animation.totalTicks; t += tickStep) ticks.push(t)
+    const maxTick = Math.ceil(contentWidth / pxPerTick)
+    for (let t = 0; t <= maxTick; t += tickStep) ticks.push(t)
     return ticks
-  }, [animation.totalTicks, tickStep])
+  }, [contentWidth, pxPerTick, tickStep])
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault()
@@ -215,63 +212,65 @@ export default function TimelineBar() {
 
         <div className="flex-1" />
 
-        <span className="text-xs text-muted-foreground">缩放</span>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="outline" size="icon-sm" onClick={() => setPxPerTick((p) => Math.max(minPxPerTick, p - 2))}><Minus /></Button>
-          </TooltipTrigger>
-          <TooltipContent>缩小</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="outline" size="sm" className="h-7 cursor-ew-resize px-2" onMouseDown={handleZoomMouseDown}>{pxPerTick}px</Button>
-          </TooltipTrigger>
-          <TooltipContent>左右拖动调节，单击恢复</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="outline" size="icon-sm" onClick={() => setPxPerTick((p) => Math.min(maxPxPerTick, p + 2))}><Plus /></Button>
-          </TooltipTrigger>
-          <TooltipContent>放大</TooltipContent>
-        </Tooltip>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Kbd className="px-1.5 py-0 text-[10px]">滚轮</Kbd>
+          <span>缩放时间线</span>
+        </div>
       </div>
 
-      <div ref={scrollRef} className="relative h-[54px] overflow-x-auto overflow-y-hidden" onWheel={handleWheel}>
-        <div className="relative" style={{ width: Math.max(timelineWidth, 100) }}>
+      <div ref={scrollRef} className={cn("relative h-[54px] overflow-y-hidden", canScroll ? "overflow-x-auto" : "overflow-x-hidden")} onWheel={handleWheel}>
+        <div className="relative w-full" style={{ minWidth: timelineWidth }}>
+          {/* 标尺：刻度铺满，数字在顶部、刻度线在底部 */}
           <div className="relative h-[18px] cursor-pointer border-b bg-card" onMouseDown={handleRulerMouseDown}>
             {rulerTicks.map((tick) => (
               <div key={tick} className="absolute bottom-0 top-0" style={{ left: tick * pxPerTick }}>
-                <div className="mx-auto h-2 w-px bg-muted-foreground/40" />
-                <span className="absolute left-0.5 top-2 whitespace-nowrap text-[9px] text-muted-foreground">{tick}</span>
+                <span className="absolute left-1 top-0.5 whitespace-nowrap text-[9px] leading-none text-muted-foreground">{tick}</span>
+                <div className="absolute bottom-0 h-2 w-px bg-muted-foreground/40" />
               </div>
             ))}
           </div>
 
-          <div className="relative h-[36px]">
-            {animation.elements.map((elem, i) => {
-              const width = elem.duration * pxPerTick
-              const left = frameStartTicks[i] * pxPerTick
-              return (
-                <div
-                  key={i}
-                  className={cn(
-                    'absolute flex h-full cursor-pointer flex-col justify-center overflow-hidden border-l border-r border-transparent px-1 select-none hover:bg-accent',
-                    i === currentFrameIndex && 'bg-accent border-l-primary',
-                    draggingFrame === i && 'border-r-2 border-r-primary'
-                  )}
-                  style={{ width, minWidth: 1, left }}
-                  onClick={() => setFrame(i)}
-                >
-                  {width >= 30 && <div className="whitespace-nowrap text-[10px] text-muted-foreground">F{i}</div>}
-                  {width >= 50 && <div className="whitespace-nowrap text-[10px] text-muted-foreground">{elem.duration}t</div>}
+          {/* 帧条区：浅灰底与标尺分区；无帧时显示提示 */}
+          <div className="relative h-[36px] bg-muted/30">
+            {hasFrames ? (
+              animation.elements.map((elem, i) => {
+                const width = elem.duration * pxPerTick
+                const left = frameStartTicks[i] * pxPerTick
+                return (
                   <div
-                    className="absolute right-[-4px] top-0 bottom-0 w-2 cursor-ew-resize hover:bg-primary/30"
-                    onMouseDown={(e) => handleDurMouseDown(e, i)}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                </div>
-              )
-            })}
+                    key={i}
+                    className={cn(
+                      'absolute flex h-full cursor-pointer flex-col justify-center overflow-hidden px-1 select-none bg-background hover:bg-accent',
+                      i === currentFrameIndex && 'bg-primary/15'
+                    )}
+                    style={{ width, minWidth: 1, left }}
+                    onClick={() => setFrame(i)}
+                  >
+                    {width >= 30 && (
+                      <div className={cn('whitespace-nowrap text-[10px]', i === currentFrameIndex ? 'font-medium text-foreground' : 'text-muted-foreground')}>F{i}</div>
+                    )}
+                    {width >= 50 && <div className="whitespace-nowrap text-[10px] text-muted-foreground">{elem.duration}t</div>}
+                    {/* 帧尾拖拽手柄：8px 透明命中区 + 1px 可见细线，hover/拖拽中变主色 */}
+                    <div
+                      className="group absolute right-[-4px] top-0 bottom-0 w-2 cursor-ew-resize"
+                      onMouseDown={(e) => handleDurMouseDown(e, i)}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div
+                        className={cn(
+                          'absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-border transition-colors group-hover:bg-primary',
+                          draggingFrame === i && 'bg-primary'
+                        )}
+                      />
+                    </div>
+                  </div>
+                )
+              })
+            ) : (
+              <div className="flex h-full items-center justify-center text-[11px] text-muted-foreground">
+                导入图片以创建帧
+              </div>
+            )}
           </div>
 
           {hasFrames && (
