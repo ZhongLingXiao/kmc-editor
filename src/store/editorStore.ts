@@ -74,6 +74,7 @@ interface EditorState {
   selectedBoxType: 'hurtbox' | 'hitbox' | 'jcbox' | 'pushbox' | 'spawnpoint' | null
   showLayers: ShowLayers
   onionSkin: OnionSkinSettings
+  settingsOpen: string[] // 设置面板 Accordion 展开项（编辑器态，持久跨 tab 切换）
 
   // === 预览状态 ===
   isPlaying: boolean
@@ -127,6 +128,7 @@ interface EditorState {
   toggleLayer: (layer: keyof ShowLayers) => void
   updateOnionSkin: (settings: Partial<OnionSkinSettings>) => void
   syncMetadata: () => void
+  setSettingsOpen: (open: string[]) => void
 
   // === Actions: 预览 ===
   setPlaying: (playing: boolean) => void
@@ -172,6 +174,8 @@ export const useEditorStore = create<EditorState>()(
         showSprite: true,
         showBoxes: true,
       },
+
+      settingsOpen: ['anim', 'onion', 'display'],
 
       isPlaying: false,
       playSpeed: 1,
@@ -507,6 +511,7 @@ export const useEditorStore = create<EditorState>()(
             },
           },
         })),
+      setSettingsOpen: (open) => set({ settingsOpen: open }),
 
       // === 预览 ===
       setPlaying: (playing) => set({ isPlaying: playing }),

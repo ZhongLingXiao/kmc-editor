@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { useEditorStore } from './store/editorStore'
-import { TooltipProvider } from '@/components/ui/tooltip'
+import { TooltipProvider, Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { SlidersHorizontal, Settings } from 'lucide-react'
 import { spaceState } from './lib/space-pan'
 import MenuBar from './components/layout/MenuBar'
 import ToolRail from './components/layout/ToolRail'
@@ -197,11 +199,33 @@ export default function App() {
             <FrameList />
             <Outline />
           </div>
-          <CanvasArea />
-          <div className="flex w-[320px] min-w-0 flex-col border-l bg-card">
+        <CanvasArea />
+        <Tabs defaultValue="inspect" className="flex w-[320px] min-w-0 flex-col border-l bg-card">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="inspect">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex"><SlidersHorizontal /></span>
+                </TooltipTrigger>
+                <TooltipContent>检视</TooltipContent>
+              </Tooltip>
+            </TabsTrigger>
+            <TabsTrigger value="settings">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex"><Settings /></span>
+                </TooltipTrigger>
+                <TooltipContent>设置</TooltipContent>
+              </Tooltip>
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="inspect" className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <Inspector />
+          </TabsContent>
+          <TabsContent value="settings" className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <SettingsPanel />
-          </div>
+          </TabsContent>
+        </Tabs>
         </div>
         <TimelineBar />
       </div>

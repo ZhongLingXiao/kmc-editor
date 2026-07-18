@@ -49,14 +49,12 @@ export default function SettingsPanel() {
   const updateOnionSkin = useEditorStore((s) => s.updateOnionSkin)
   const showLayers = useEditorStore((s) => s.showLayers)
   const toggleLayer = useEditorStore((s) => s.toggleLayer)
+  const settingsOpen = useEditorStore((s) => s.settingsOpen)
+  const setSettingsOpen = useEditorStore((s) => s.setSettingsOpen)
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col border-t">
-      <div className="shrink-0 bg-muted/50 px-3 py-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">设置</span>
-      </div>
-      <Separator />
-      <Accordion type="multiple" defaultValue={['anim']} className="min-h-0 flex-1 overflow-auto px-2">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <Accordion type="multiple" value={settingsOpen} onValueChange={setSettingsOpen} className="min-h-0 flex-1 overflow-auto px-2">
         <AccordionItem value="anim">
           <AccordionTrigger className="text-xs">动画属性</AccordionTrigger>
           <AccordionContent className="flex flex-col gap-2.5 px-1 pb-3">
