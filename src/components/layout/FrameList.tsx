@@ -10,7 +10,7 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
 } from '@/components/ui/context-menu'
-import { Plus, Copy, Trash2, ImageUp, LayoutGrid, List } from 'lucide-react'
+import { Plus, Copy, Trash2, ImageUp, LayoutGrid, List, ArrowUp, ArrowDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -25,6 +25,8 @@ export default function FrameList() {
   const duplicateFrame = useEditorStore((s) => s.duplicateFrame)
   const loadSprite = useEditorStore((s) => s.loadSprite)
   const addFrame = useEditorStore((s) => s.addFrame)
+  const insertFrame = useEditorStore((s) => s.insertFrame)
+  const moveFrame = useEditorStore((s) => s.moveFrame)
   const frameListMode = useEditorStore((s) => s.frameListMode)
   const setFrameListMode = useEditorStore((s) => s.setFrameListMode)
 
@@ -153,8 +155,22 @@ export default function FrameList() {
                 <ContextMenuItem onClick={() => startLoadSprite(i)}>
                   <ImageUp /> 载入图
                 </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={() => insertFrame(i, i)}>
+                  <Plus /> 在前面插入帧
+                </ContextMenuItem>
+                <ContextMenuItem onClick={() => insertFrame(i + 1, i)}>
+                  <Plus /> 在后面插入帧
+                </ContextMenuItem>
                 <ContextMenuItem onClick={() => duplicateFrame(i)}>
                   <Copy /> 复制帧
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={() => moveFrame(i, i - 1)} disabled={i === 0}>
+                  <ArrowUp /> 上移帧
+                </ContextMenuItem>
+                <ContextMenuItem onClick={() => moveFrame(i, i + 1)} disabled={i === animation.elements.length - 1}>
+                  <ArrowDown /> 下移帧
                 </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem

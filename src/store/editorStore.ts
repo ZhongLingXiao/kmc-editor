@@ -98,6 +98,7 @@ interface EditorState {
 
   // === Actions: 帧管理 ===
   addFrame: () => void
+  insertFrame: (at: number, sourceIndex: number) => void
   removeFrame: (index: number) => void
   duplicateFrame: (index: number) => void
   setFrame: (index: number) => void
@@ -255,6 +256,36 @@ export const useEditorStore = create<EditorState>()(
           }
         }),
 
+      insertFrame: (at, sourceIndex) =>
+        set((s) => {
+          const elements = s.animation.elements
+          const clampedAt = Math.max(0, Math.min(at, elements.length))
+          // 继承源帧数据（box/发射点/轴点），清空精灵图，重新生成 ID 避免冲突
+          const source = elements[sourceIndex] ?? elements[clampedAt] ?? null
+          const newElement: AnimElement = source
+            ? {
+                ...source,
+                index: clampedAt,
+                sprite: { path: '', data: '', w: 0, h: 0 },
+                hurtboxes: source.hurtboxes.map((b) => ({ ...b, id: genId() })),
+                hitboxes: source.hitboxes.map((b) => ({ ...b, id: genId() })),
+                jcboxes: source.jcboxes.map((b) => ({ ...b, id: genId() })),
+                spawnPoints: source.spawnPoints.map((p) => ({ ...p, id: genId() })),
+              }
+            : createEmptyElement(clampedAt)
+          const newElements = [
+            ...elements.slice(0, clampedAt),
+            newElement,
+            ...elements.slice(clampedAt),
+          ].map((e, i) => ({ ...e, index: i }))
+          const totalTicks = newElements.reduce((sum, e) => sum + e.duration, 0)
+          return {
+            animation: { ...s.animation, elements: newElements, totalTicks },
+            currentFrameIndex: clampedAt,
+            currentTick: frameStartTick(newElements, clampedAt),
+          }
+        }),
+
       duplicateFrame: (index) =>
         set((s) => {
           const source = s.animation.elements[index]
@@ -296,13 +327,23 @@ export const useEditorStore = create<EditorState>()(
 
       moveFrame: (from, to) =>
         set((s) => {
-          if (from === to || from < 0 || to < 0) return s
+          if (from === to || from < 0 || to < 0 || from >= s.animation.elements.length || to >= s.animation.elements.length) return s
           const arr = [...s.animation.elements]
           const [moved] = arr.splice(from, 1)
           arr.splice(to, 0, moved)
           // 不可变更新 index，避免污染旧 state 的撤销快照
           const elements = arr.map((e, i) => ({ ...e, index: i }))
-          return { animation: { ...s.animation, elements } }
+          // 跟随当前帧：移动的是当前帧 → 索引变为 to；当前帧在移动区间内 → 相应增减
+          let newFrameIndex = s.currentFrameIndex
+          if (s.currentFrameIndex === from) newFrameIndex = to
+          else if (from < s.currentFrameIndex && to >= s.currentFrameIndex) newFrameIndex = s.currentFrameIndex - 1
+          else if (from > s.currentFrameIndex && to <= s.currentFrameIndex) newFrameIndex = s.currentFrameIndex + 1
+          const totalTicks = elements.reduce((sum, e) => sum + e.duration, 0)
+          return {
+            animation: { ...s.animation, elements, totalTicks },
+            currentFrameIndex: newFrameIndex,
+            currentTick: frameStartTick(elements, newFrameIndex),
+          }
         }),
 
       updateFrame: (index, data) =>
