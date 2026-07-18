@@ -10,10 +10,11 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
 } from '@/components/ui/context-menu'
-import { Plus, Copy, Trash2, ImageUp } from 'lucide-react'
+import { Plus, Copy, Trash2, ImageUp, LayoutGrid, List } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 
 export default function FrameList() {
   const animation = useEditorStore((s) => s.animation)
@@ -24,6 +25,8 @@ export default function FrameList() {
   const duplicateFrame = useEditorStore((s) => s.duplicateFrame)
   const loadSprite = useEditorStore((s) => s.loadSprite)
   const addFrame = useEditorStore((s) => s.addFrame)
+  const frameListMode = useEditorStore((s) => s.frameListMode)
+  const setFrameListMode = useEditorStore((s) => s.setFrameListMode)
 
   const spriteInputRef = useRef<HTMLInputElement>(null)
   const pendingFrameIndex = useRef<number>(-1)
@@ -54,7 +57,31 @@ export default function FrameList() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center justify-between bg-muted/50 px-3 py-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">帧列表</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">帧列表</span>
+          <ToggleGroup
+            type="single"
+            value={frameListMode}
+            onValueChange={(v) => { if (v) setFrameListMode(v as 'detail' | 'compact') }}
+          >
+            <ToggleGroupItem value="detail" className="h-6 w-6 p-0">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="flex"><LayoutGrid className="size-3.5" /></span>
+                </TooltipTrigger>
+                <TooltipContent>详细视图</TooltipContent>
+              </Tooltip>
+            </ToggleGroupItem>
+            <ToggleGroupItem value="compact" className="h-6 w-6 p-0">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="flex"><List className="size-3.5" /></span>
+                </TooltipTrigger>
+                <TooltipContent>紧凑视图</TooltipContent>
+              </Tooltip>
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="ghost" size="icon-xs" onClick={addFrame}>
@@ -87,26 +114,39 @@ export default function FrameList() {
                 <div
                   onClick={() => setFrame(i)}
                   className={cn(
-                    'flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent',
+                    'flex cursor-pointer items-center gap-2 rounded-md hover:bg-accent',
+                    frameListMode === 'detail' ? 'px-2 py-1.5' : 'px-2 py-1 text-xs',
                     i === currentFrameIndex && 'bg-accent'
                   )}
                 >
-                  <span className="w-5 shrink-0 text-xs text-muted-foreground">{i}</span>
-                  <div
-                    className="size-9 shrink-0 rounded border bg-muted"
-                    style={{
-                      backgroundImage: elem.sprite.data ? `url(${elem.sprite.data})` : 'none',
-                      backgroundSize: 'contain',
-                      backgroundRepeat: 'no-repeat',
-                      backgroundPosition: 'center',
-                    }}
-                  />
-                  <div className="min-w-0 flex-1 text-xs">
-                    <div>{elem.duration} Tick</div>
-                    <div className="text-muted-foreground">
-                      {elem.sprite.w > 0 ? `${elem.sprite.w}×${elem.sprite.h}` : '无图片'}
-                    </div>
-                  </div>
+                  {frameListMode === 'detail' ? (
+                    <>
+                      <span className="w-5 shrink-0 text-xs text-muted-foreground">{i}</span>
+                      <div
+                        className="size-9 shrink-0 rounded border bg-muted"
+                        style={{
+                          backgroundImage: elem.sprite.data ? `url(${elem.sprite.data})` : 'none',
+                          backgroundSize: 'contain',
+                          backgroundRepeat: 'no-repeat',
+                          backgroundPosition: 'center',
+                        }}
+                      />
+                      <div className="min-w-0 flex-1 text-xs">
+                        <div>{elem.duration} Tick</div>
+                        <div className="text-muted-foreground">
+                          {elem.sprite.w > 0 ? `${elem.sprite.w}×${elem.sprite.h}` : '无图片'}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <span className="w-5 shrink-0 text-muted-foreground">{i}</span>
+                      <span>{elem.duration}t</span>
+                      <span className="text-muted-foreground">
+                        {elem.sprite.w > 0 ? `${elem.sprite.w}×${elem.sprite.h}` : '无图'}
+                      </span>
+                    </>
+                  )}
                 </div>
               </ContextMenuTrigger>
               <ContextMenuContent>

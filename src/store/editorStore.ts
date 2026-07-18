@@ -75,6 +75,7 @@ interface EditorState {
   showLayers: ShowLayers
   onionSkin: OnionSkinSettings
   settingsOpen: string[] // 设置面板 Accordion 展开项（编辑器态，持久跨 tab 切换）
+  frameListMode: 'detail' | 'compact' // 帧列表显示模式（编辑器态）
 
   // === 预览状态 ===
   isPlaying: boolean
@@ -130,6 +131,7 @@ interface EditorState {
   updateOnionSkin: (settings: Partial<OnionSkinSettings>) => void
   syncMetadata: () => void
   setSettingsOpen: (open: string[]) => void
+  setFrameListMode: (mode: 'detail' | 'compact') => void
 
   // === Actions: 预览 ===
   setPlaying: (playing: boolean) => void
@@ -178,6 +180,7 @@ export const useEditorStore = create<EditorState>()(
       },
 
       settingsOpen: ['anim', 'onion', 'display'],
+      frameListMode: 'detail',
 
       isPlaying: false,
       playSpeed: 1,
@@ -515,6 +518,7 @@ export const useEditorStore = create<EditorState>()(
           },
         })),
       setSettingsOpen: (open) => set({ settingsOpen: open }),
+      setFrameListMode: (mode) => set({ frameListMode: mode }),
 
       // === 预览 ===
       setPlaying: (playing) => set({ isPlaying: playing }),
