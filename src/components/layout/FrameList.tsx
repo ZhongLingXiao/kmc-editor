@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { readImageFile } from '../../lib/image'
 
 export default function FrameList() {
   const animation = useEditorStore((s) => s.animation)
@@ -115,6 +116,20 @@ export default function FrameList() {
               <ContextMenuTrigger asChild>
                 <div
                   onClick={() => setFrame(i)}
+                  onDrop={async (e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    const file = e.dataTransfer.files[0]
+                    if (!file || !file.type.startsWith('image/')) return
+                    try {
+                      const info = await readImageFile(file)
+                      useEditorStore.getState().loadSprite(i, info.path, info.data, info.w, info.h)
+                      toast.success(`已替换帧 ${i} 的图片`)
+                    } catch {
+                      toast.error('图片加载失败')
+                    }
+                  }}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy' }}
                   className={cn(
                     'flex cursor-pointer items-center gap-2 rounded-md hover:bg-accent',
                     frameListMode === 'detail' ? 'px-2 py-1.5' : 'px-2 py-1 text-xs',

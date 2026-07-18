@@ -14,7 +14,9 @@ import {
   ContextMenuSubContent,
 } from '@/components/ui/context-menu'
 import { spaceState } from '../../lib/space-pan'
+import { readImageFile } from '../../lib/image'
 import { MousePointer2, Move, Square, Swords, Diamond, Box, Crosshair } from 'lucide-react'
+import { toast } from 'sonner'
 
 export default function CanvasArea() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -94,6 +96,29 @@ export default function CanvasArea() {
     if (isPanning) setIsPanning(false)
   }
 
+  // 拖拽图片到画布 → 创建新帧并载入该图（多图目前只取第一张，未来支持序列帧）
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    const file = e.dataTransfer.files[0]
+    if (!file || !file.type.startsWith('image/')) return
+    try {
+      const info = await readImageFile(file)
+      // 继承末尾帧数据（轴点/box），使序列帧视觉连续
+      const lastIdx = useEditorStore.getState().animation.elements.length - 1
+      addFrame(lastIdx)
+      const newIndex = useEditorStore.getState().currentFrameIndex
+      useEditorStore.getState().loadSprite(newIndex, info.path, info.data, info.w, info.h)
+      toast.success('已创建新帧')
+    } catch {
+      toast.error('图片加载失败')
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
   const frame = currentFrameIndex >= 0 ? animation.elements[currentFrameIndex] : null
 
   const cursor = isPanning ? 'grabbing' : spaceHeld ? 'grab' : 'default'
@@ -111,6 +136,8 @@ export default function CanvasArea() {
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
             onDoubleClick={() => resetView()}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
             style={{ cursor }}
           >
             <EditorCanvas />

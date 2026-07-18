@@ -76,6 +76,8 @@ interface EditorState {
   onionSkin: OnionSkinSettings
   settingsOpen: string[] // 设置面板 Accordion 展开项（编辑器态，持久跨 tab 切换）
   frameListMode: 'detail' | 'compact' // 帧列表显示模式（编辑器态）
+  newFrameInheritBoxes: boolean // 新帧是否继承源帧碰撞箱与发射点（编辑器态）
+  newFrameInheritOffset: boolean // 新帧是否继承源帧轴点（编辑器态）
 
   // === 预览状态 ===
   isPlaying: boolean
@@ -97,7 +99,7 @@ interface EditorState {
   updateAnimationMeta: (meta: Partial<Pick<AnimationData, 'id' | 'name' | 'loop'>>) => void
 
   // === Actions: 帧管理 ===
-  addFrame: () => void
+  addFrame: (sourceIndex?: number) => void
   insertFrame: (at: number, sourceIndex: number) => void
   removeFrame: (index: number) => void
   duplicateFrame: (index: number) => void
@@ -133,6 +135,8 @@ interface EditorState {
   syncMetadata: () => void
   setSettingsOpen: (open: string[]) => void
   setFrameListMode: (mode: 'detail' | 'compact') => void
+  setNewFrameInheritBoxes: (inherit: boolean) => void
+  setNewFrameInheritOffset: (inherit: boolean) => void
 
   // === Actions: 预览 ===
   setPlaying: (playing: boolean) => void
@@ -182,6 +186,8 @@ export const useEditorStore = create<EditorState>()(
 
       settingsOpen: ['anim', 'onion', 'display'],
       frameListMode: 'detail',
+      newFrameInheritBoxes: true,
+      newFrameInheritOffset: true,
 
       isPlaying: false,
       playSpeed: 1,
@@ -211,25 +217,29 @@ export const useEditorStore = create<EditorState>()(
         set((s) => ({ animation: { ...s.animation, ...meta } })),
 
       // === 帧管理 ===
-      addFrame: () =>
+      addFrame: (sourceIndex) =>
         set((s) => {
           const elements = [...s.animation.elements]
           const newIndex = elements.length
 
-          // 从当前帧继承所有数据（box、发射点、轴点），只清空精灵图
-          const prev = s.currentFrameIndex >= 0 ? elements[s.currentFrameIndex] : null
-          const newElement: AnimElement = prev
-            ? {
-                ...prev,
-                index: newIndex,
-                sprite: { path: '', data: '', w: 0, h: 0 },
-                // 深拷贝 box 和发射点，生成新 ID 避免冲突
-                hurtboxes: prev.hurtboxes.map((b) => ({ ...b, id: genId() })),
-                hitboxes: prev.hitboxes.map((b) => ({ ...b, id: genId() })),
-                jcboxes: prev.jcboxes.map((b) => ({ ...b, id: genId() })),
-                spawnPoints: prev.spawnPoints.map((p) => ({ ...p, id: genId() })),
-              }
-            : createEmptyElement(newIndex)
+          // 继承源帧数据：轴点与碰撞箱/发射点分别由两个开关控制，只清空精灵图
+          const srcIdx = sourceIndex ?? s.currentFrameIndex
+          const prev = srcIdx >= 0 ? elements[srcIdx] : null
+          const inheritOffset = s.newFrameInheritOffset
+          const inheritBoxes = s.newFrameInheritBoxes
+          const newElement: AnimElement =
+            prev && (inheritOffset || inheritBoxes)
+              ? {
+                  ...prev,
+                  index: newIndex,
+                  sprite: { path: '', data: '', w: 0, h: 0 },
+                  offset: inheritOffset ? prev.offset : { x: 0, y: 0 },
+                  hurtboxes: inheritBoxes ? prev.hurtboxes.map((b) => ({ ...b, id: genId() })) : [],
+                  hitboxes: inheritBoxes ? prev.hitboxes.map((b) => ({ ...b, id: genId() })) : [],
+                  jcboxes: inheritBoxes ? prev.jcboxes.map((b) => ({ ...b, id: genId() })) : [],
+                  spawnPoints: inheritBoxes ? prev.spawnPoints.map((p) => ({ ...p, id: genId() })) : [],
+                }
+              : createEmptyElement(newIndex)
 
           elements.push(newElement)
           const totalTicks = elements.reduce((sum, e) => sum + e.duration, 0)
@@ -260,19 +270,23 @@ export const useEditorStore = create<EditorState>()(
         set((s) => {
           const elements = s.animation.elements
           const clampedAt = Math.max(0, Math.min(at, elements.length))
-          // 继承源帧数据（box/发射点/轴点），清空精灵图，重新生成 ID 避免冲突
-          const source = elements[sourceIndex] ?? elements[clampedAt] ?? null
-          const newElement: AnimElement = source
-            ? {
-                ...source,
-                index: clampedAt,
-                sprite: { path: '', data: '', w: 0, h: 0 },
-                hurtboxes: source.hurtboxes.map((b) => ({ ...b, id: genId() })),
-                hitboxes: source.hitboxes.map((b) => ({ ...b, id: genId() })),
-                jcboxes: source.jcboxes.map((b) => ({ ...b, id: genId() })),
-                spawnPoints: source.spawnPoints.map((p) => ({ ...p, id: genId() })),
-              }
-            : createEmptyElement(clampedAt)
+          // 继承源帧数据：轴点与碰撞箱/发射点分别由两个开关控制，清空精灵图，重新生成 ID
+          const src = elements[sourceIndex] ?? elements[clampedAt] ?? null
+          const inheritOffset = s.newFrameInheritOffset
+          const inheritBoxes = s.newFrameInheritBoxes
+          const newElement: AnimElement =
+            src && (inheritOffset || inheritBoxes)
+              ? {
+                  ...src,
+                  index: clampedAt,
+                  sprite: { path: '', data: '', w: 0, h: 0 },
+                  offset: inheritOffset ? src.offset : { x: 0, y: 0 },
+                  hurtboxes: inheritBoxes ? src.hurtboxes.map((b) => ({ ...b, id: genId() })) : [],
+                  hitboxes: inheritBoxes ? src.hitboxes.map((b) => ({ ...b, id: genId() })) : [],
+                  jcboxes: inheritBoxes ? src.jcboxes.map((b) => ({ ...b, id: genId() })) : [],
+                  spawnPoints: inheritBoxes ? src.spawnPoints.map((p) => ({ ...p, id: genId() })) : [],
+                }
+              : createEmptyElement(clampedAt)
           const newElements = [
             ...elements.slice(0, clampedAt),
             newElement,
@@ -365,10 +379,14 @@ export const useEditorStore = create<EditorState>()(
         set((s) => {
           const elements = [...s.animation.elements]
           if (!elements[index]) return s
+          const old = elements[index]
+          // 首次载入（offset 为 0,0）设为底部中心对齐 Root；否则保留现有轴点
+          // （含从源帧继承的），避免覆盖用户调整或继承的轴点
+          const isFirstLoad = old.offset.x === 0 && old.offset.y === 0
           elements[index] = {
-            ...elements[index],
+            ...old,
             sprite: { path, data, w, h },
-            offset: { x: Math.round(w / 2), y: h }, // 默认精灵轴点：图片底部中心对齐固定角色根点
+            offset: isFirstLoad ? { x: Math.round(w / 2), y: h } : old.offset,
           }
           return { animation: { ...s.animation, elements } }
         }),
@@ -560,6 +578,8 @@ export const useEditorStore = create<EditorState>()(
         })),
       setSettingsOpen: (open) => set({ settingsOpen: open }),
       setFrameListMode: (mode) => set({ frameListMode: mode }),
+      setNewFrameInheritBoxes: (inherit) => set({ newFrameInheritBoxes: inherit }),
+      setNewFrameInheritOffset: (inherit) => set({ newFrameInheritOffset: inherit }),
 
       // === 预览 ===
       setPlaying: (playing) => set({ isPlaying: playing }),

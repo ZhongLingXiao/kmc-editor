@@ -17,6 +17,7 @@ import { useEditorStore } from '../../store/editorStore'
 import { exportAnimation, importAnimation } from '../../utils/export'
 import { toast } from 'sonner'
 import { useRef, useState, useEffect } from 'react'
+import PreferencesDialog from './PreferencesDialog'
 
 interface FileHandle {
   name: string
@@ -39,6 +40,7 @@ export default function MenuBar() {
   const showLayers = useEditorStore((s) => s.showLayers)
   const toggleLayer = useEditorStore((s) => s.toggleLayer)
   const resetView = useEditorStore((s) => s.resetView)
+  const [preferencesOpen, setPreferencesOpen] = useState(false)
 
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -185,6 +187,10 @@ export default function MenuBar() {
             <MenubarItem onClick={redo} disabled={!canRedo}>
               重做 <MenubarShortcut>Ctrl+Y</MenubarShortcut>
             </MenubarItem>
+            <MenubarSeparator />
+            <MenubarItem onClick={() => { setPreferencesOpen(true); setOpenMenu(null) }}>
+              偏好设置…
+            </MenubarItem>
           </MenubarContent>
         </MenubarMenu>
 
@@ -244,6 +250,8 @@ export default function MenuBar() {
         </TooltipTrigger>
         <TooltipContent>重做 Ctrl+Y</TooltipContent>
       </Tooltip>
+
+      <PreferencesDialog open={preferencesOpen} onOpenChange={setPreferencesOpen} />
     </div>
   )
 }
