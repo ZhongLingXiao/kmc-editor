@@ -80,6 +80,7 @@ interface EditorState {
   isPlaying: boolean
   playSpeed: number
   previewLoop: boolean // 预览循环（编辑器态，不进 animation 数据、不进撤销历史、不导出）
+  fps: number // 播放实时帧率（编辑器态，仅显示用）
 
   // === 画布状态 ===
   canvasWidth: number
@@ -134,6 +135,7 @@ interface EditorState {
   setPlaying: (playing: boolean) => void
   setPlaySpeed: (speed: number) => void
   togglePreviewLoop: () => void
+  setFps: (fps: number) => void
 
   // === Actions: 画布 ===
   setCanvasSize: (w: number, h: number) => void
@@ -180,6 +182,7 @@ export const useEditorStore = create<EditorState>()(
       isPlaying: false,
       playSpeed: 1,
       previewLoop: false,
+      fps: 0,
 
       canvasWidth: 800,
       canvasHeight: 600,
@@ -517,6 +520,7 @@ export const useEditorStore = create<EditorState>()(
       setPlaying: (playing) => set({ isPlaying: playing }),
       setPlaySpeed: (speed) => set({ playSpeed: speed }),
       togglePreviewLoop: () => set((s) => ({ previewLoop: !s.previewLoop })),
+      setFps: (fps) => set({ fps }),
 
       // === 画布 ===
       setCanvasSize: (w, h) =>

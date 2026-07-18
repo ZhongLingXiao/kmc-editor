@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useEditorStore } from '../../store/editorStore'
-import { COLORS, Box, SpawnPoint, ShowLayers } from '../../types/animation'
+import { COLORS, ShowLayers } from '../../types/animation'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
@@ -32,7 +32,9 @@ const GROUPS: { key: GroupKey; label: string; color: string; border: string }[] 
 
 export default function Outline() {
   const animation = useEditorStore((s) => s.animation)
-  const currentFrameIndex = useEditorStore((s) => s.currentFrameIndex)
+  // 播放时冻结为 -1：大纲不跟随帧变化刷新，避免播放性能损耗
+  const currentFrameIndex = useEditorStore((s) => (s.isPlaying ? -1 : s.currentFrameIndex))
+  const isPlaying = useEditorStore((s) => s.isPlaying)
   const showLayers = useEditorStore((s) => s.showLayers)
   const toggleLayer = useEditorStore((s) => s.toggleLayer)
   const selectedBoxId = useEditorStore((s) => s.selectedBoxId)
@@ -75,7 +77,9 @@ export default function Outline() {
       <ScrollArea className="min-h-0 flex-1">
         <div className="p-1.5">
           {!frame && (
-            <div className="px-3 py-8 text-center text-xs text-muted-foreground">无当前帧</div>
+            <div className="px-3 py-8 text-center text-xs text-muted-foreground">
+              {isPlaying ? '播放中…' : '无当前帧'}
+            </div>
           )}
           {frame && totalObjects === 0 && (
             <div className="px-3 py-8 text-center text-xs text-muted-foreground">当前帧无对象</div>

@@ -17,7 +17,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 
 export default function FrameList() {
   const animation = useEditorStore((s) => s.animation)
-  const currentFrameIndex = useEditorStore((s) => s.currentFrameIndex)
+  // 播放时冻结为 -1：不高亮、不显示底部操作栏，且 currentFrameIndex 变化不触发 re-render
+  const currentFrameIndex = useEditorStore((s) => (s.isPlaying ? -1 : s.currentFrameIndex))
   const setFrame = useEditorStore((s) => s.setFrame)
   const removeFrame = useEditorStore((s) => s.removeFrame)
   const duplicateFrame = useEditorStore((s) => s.duplicateFrame)

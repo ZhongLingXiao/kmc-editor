@@ -41,6 +41,7 @@ export default function TimelineBar() {
   const updateFrame = useEditorStore((s) => s.updateFrame)
   const previewLoop = useEditorStore((s) => s.previewLoop)
   const togglePreviewLoop = useEditorStore((s) => s.togglePreviewLoop)
+  const fps = useEditorStore((s) => s.fps)
 
   const hasFrames = animation.elements.length > 0
   const isLastFrame = currentFrameIndex === animation.elements.length - 1
@@ -209,6 +210,11 @@ export default function TimelineBar() {
         <Badge variant="secondary" className="font-normal text-orange-600">
           Tick {currentTick}/{animation.totalTicks}
         </Badge>
+        {isPlaying && fps > 0 && (
+          <Badge variant="secondary" className="font-normal text-emerald-600">
+            {fps} fps
+          </Badge>
+        )}
 
         <div className="flex-1" />
 

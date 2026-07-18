@@ -17,40 +17,68 @@ import TimelineBar from './components/layout/TimelineBar'
 export default function App() {
   const isPlaying = useEditorStore((s) => s.isPlaying)
   const playSpeed = useEditorStore((s) => s.playSpeed)
-  const currentTick = useEditorStore((s) => s.currentTick)
-  const totalTicks = useEditorStore((s) => s.animation.totalTicks)
   const elemCount = useEditorStore((s) => s.animation.elements.length)
-  const loop = useEditorStore((s) => s.previewLoop)
-  const setPlaying = useEditorStore((s) => s.setPlaying)
-  const setCurrentTick = useEditorStore((s) => s.setCurrentTick)
 
-  // 播放预览：按 tick 推进（1x = 每 1/60 秒一个 tick）
-  const playTimerRef = useRef<number | null>(null)
+  // 播放预览：rAF 驱动 + 时间累积，保证 1x=60tick/秒 准确
+  // （setTimeout 链式会因 re-render 调度开销累积延迟，实际帧率偏低）
+  const rafRef = useRef<number | null>(null)
+  const lastTimeRef = useRef<number | null>(null)
+  const accRef = useRef(0)
 
   useEffect(() => {
     if (!isPlaying || elemCount === 0) return
 
+    lastTimeRef.current = null
+    accRef.current = 0
+    let frameCount = 0
+    let fpsLastUpdate = 0
     const tickTime = (1000 / 60) / playSpeed
 
-    playTimerRef.current = window.setTimeout(() => {
-      let next = currentTick + 1
-      if (next >= totalTicks) {
-        if (loop) {
-          next = 0
-        } else {
-          setPlaying(false)
-          return
-        }
+    const loop = (now: number) => {
+      if (lastTimeRef.current == null) {
+        lastTimeRef.current = now
+        fpsLastUpdate = now
+        rafRef.current = requestAnimationFrame(loop)
+        return
       }
-      setCurrentTick(next)
-    }, tickTime)
+      const delta = now - lastTimeRef.current
+      lastTimeRef.current = now
+      accRef.current += delta
+
+      // 按累积真实时间推进 tick，一帧内可推进多个（避免后台回来跳变）
+      const state = useEditorStore.getState()
+      while (accRef.current >= tickTime) {
+        accRef.current -= tickTime
+        let next = state.currentTick + 1
+        if (next >= state.animation.totalTicks) {
+          if (state.previewLoop) {
+            next = 0
+          } else {
+            state.setPlaying(false)
+            state.setFps(0)
+            return
+          }
+        }
+        state.setCurrentTick(next)
+      }
+
+      // 每 500ms 更新一次实时帧率显示
+      frameCount++
+      if (now - fpsLastUpdate >= 500) {
+        state.setFps(Math.round((frameCount * 1000) / (now - fpsLastUpdate)))
+        fpsLastUpdate = now
+        frameCount = 0
+      }
+
+      rafRef.current = requestAnimationFrame(loop)
+    }
+    rafRef.current = requestAnimationFrame(loop)
 
     return () => {
-      if (playTimerRef.current) {
-        clearTimeout(playTimerRef.current)
-      }
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      useEditorStore.getState().setFps(0)
     }
-  }, [isPlaying, currentTick, playSpeed, totalTicks, elemCount, loop, setCurrentTick, setPlaying])
+  }, [isPlaying, playSpeed, elemCount])
 
   // 键盘快捷键
   useEffect(() => {
