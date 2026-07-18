@@ -179,16 +179,30 @@ export default function MenuBar() {
 
       <div style={{ flex: 1 }} />
 
-      {/* 工具栏 */}
+      {/* 工具栏：编辑类 / 创建类分组 */}
       <div className="menu-tools">
+        <span className="toolbar-label">编辑:</span>
         {([
-          { id: 'select', label: '选择', icon: '↖' },
+          { id: 'select', label: '选择', icon: '↖', hint: '选择/移动/缩放元素（选中后方向键微调，Shift+拖拽锁主轴向）' },
+          { id: 'anchor', label: '精灵对齐', icon: '✥', hint: '精灵对齐（拖拽移动精灵；按住 Shift 拖拽锁定主轴向）' },
+        ] as { id: Tool; label: string; icon: string; hint?: string }[]).map((t) => (
+          <button
+            key={t.id}
+            className={`tool-button tool-${t.id} ${tool === t.id ? 'active' : ''}`}
+            onClick={() => setTool(t.id)}
+            title={t.hint ?? t.label}
+          >
+            {t.icon} {t.label}
+          </button>
+        ))}
+        <div className="toolbar-separator" />
+        <span className="toolbar-label">创建:</span>
+        {([
           { id: 'hurtbox', label: '受击框', icon: '▣' },
           { id: 'hitbox', label: '攻击框', icon: '⚔' },
           { id: 'jcbox', label: 'JC框', icon: '◈' },
           { id: 'pushbox', label: '推挤框', icon: '▭' },
           { id: 'spawnpoint', label: '发射点', icon: '●' },
-          { id: 'anchor', label: '图片对齐', icon: '✥' },
         ] as { id: Tool; label: string; icon: string }[]).map((t) => (
           <button
             key={t.id}

@@ -49,6 +49,16 @@ export default function App() {
     const handleKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
 
+      // Esc 取消选中（取消后方向键回到切换帧）
+      if (e.key === 'Escape') {
+        const { selectedBoxId, selectBox } = useEditorStore.getState()
+        if (selectedBoxId) {
+          e.preventDefault()
+          selectBox(null, null)
+        }
+        return
+      }
+
       const ctrl = e.ctrlKey || e.metaKey
 
       // 文件操作
@@ -92,19 +102,50 @@ export default function App() {
         if (animation.elements.length > 0) setPlaying(!isPlaying)
       } else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
         const state = useEditorStore.getState()
+        const step = e.shiftKey ? 10 : 1
+        // 逻辑坐标增量（x 向右为正，y 向上为正）
+        let dx = 0
+        let dy = 0
+        if (e.key === 'ArrowLeft') dx = -step
+        if (e.key === 'ArrowRight') dx = step
+        if (e.key === 'ArrowUp') dy = step
+        if (e.key === 'ArrowDown') dy = -step
 
         if (state.tool === 'anchor' && state.currentFrameIndex >= 0) {
+          // 精灵对齐：方向键微调精灵轴点（pivot 方向与逻辑坐标相反）
           e.preventDefault()
           const frame = state.animation.elements[state.currentFrameIndex]
           if (!frame) return
-          const step = e.shiftKey ? 10 : 1
-          let { x, y } = frame.offset
-          if (e.key === 'ArrowLeft') x += step
-          if (e.key === 'ArrowRight') x -= step
-          if (e.key === 'ArrowUp') y += step
-          if (e.key === 'ArrowDown') y -= step
-          state.setOffset(state.currentFrameIndex, x, y)
+          state.setOffset(state.currentFrameIndex, frame.offset.x - dx, frame.offset.y + dy)
+        } else if (
+          state.tool === 'select' &&
+          state.selectedBoxType &&
+          state.selectedBoxId
+        ) {
+          // 选择模式且有选中元素：方向键微调选中元素位置（1px / Shift=10px）
+          e.preventDefault()
+          const { selectedBoxType: t, selectedBoxId: id } = state
+          if (t === 'hurtbox' || t === 'hitbox' || t === 'jcbox') {
+            const frame = state.animation.elements[state.currentFrameIndex]
+            if (!frame) return
+            const list =
+              t === 'hurtbox' ? frame.hurtboxes : t === 'hitbox' ? frame.hitboxes : frame.jcboxes
+            const box = list.find((b) => b.id === id)
+            if (!box) return
+            state.updateBox(t, id, { x: box.x + dx, y: box.y + dy })
+          } else if (t === 'spawnpoint') {
+            const frame = state.animation.elements[state.currentFrameIndex]
+            if (!frame) return
+            const p = frame.spawnPoints.find((sp) => sp.id === id)
+            if (!p) return
+            state.updateSpawnPoint(id, { x: p.x + dx, y: p.y + dy })
+          } else if (t === 'pushbox') {
+            const pb = state.animation.pushbox.stand
+            if (!pb) return
+            state.updatePushbox('stand', { x: pb.x + dx, y: pb.y + dy })
+          }
         } else if (e.key === 'ArrowLeft') {
+          // 无选中：← → 切换帧
           if (state.currentFrameIndex > 0) state.setFrame(state.currentFrameIndex - 1)
         } else if (e.key === 'ArrowRight') {
           if (state.currentFrameIndex < state.animation.elements.length - 1) {

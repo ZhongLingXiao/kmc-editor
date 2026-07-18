@@ -244,17 +244,21 @@ export const useEditorStore = create<EditorState>()(
 
       duplicateFrame: (index) =>
         set((s) => {
-          const elements = [...s.animation.elements]
-          const source = elements[index]
+          const source = s.animation.elements[index]
           if (!source) return s
           const copy: AnimElement = {
             ...source,
             hurtboxes: source.hurtboxes.map((b) => ({ ...b, id: genId() })),
             hitboxes: source.hitboxes.map((b) => ({ ...b, id: genId() })),
+            jcboxes: source.jcboxes.map((b) => ({ ...b, id: genId() })),
             spawnPoints: source.spawnPoints.map((p) => ({ ...p, id: genId() })),
           }
-          elements.splice(index + 1, 0, copy)
-          elements.forEach((e, i) => (e.index = i))
+          // 不可变更新：重新生成所有元素的 index，避免就地修改旧 state 的元素污染撤销快照
+          const elements = [
+            ...s.animation.elements.slice(0, index + 1),
+            copy,
+            ...s.animation.elements.slice(index + 1),
+          ].map((e, i) => ({ ...e, index: i }))
           const totalTicks = elements.reduce((sum, e) => sum + e.duration, 0)
           return {
             animation: { ...s.animation, elements, totalTicks },
@@ -280,10 +284,11 @@ export const useEditorStore = create<EditorState>()(
       moveFrame: (from, to) =>
         set((s) => {
           if (from === to || from < 0 || to < 0) return s
-          const elements = [...s.animation.elements]
-          const [moved] = elements.splice(from, 1)
-          elements.splice(to, 0, moved)
-          elements.forEach((e, i) => (e.index = i))
+          const arr = [...s.animation.elements]
+          const [moved] = arr.splice(from, 1)
+          arr.splice(to, 0, moved)
+          // 不可变更新 index，避免污染旧 state 的撤销快照
+          const elements = arr.map((e, i) => ({ ...e, index: i }))
           return { animation: { ...s.animation, elements } }
         }),
 
@@ -315,6 +320,8 @@ export const useEditorStore = create<EditorState>()(
         }),
 
       // === 碰撞箱管理 ===
+      // 注意：所有更新都必须构造全新的 frame / 数组 / box 对象，不能就地修改旧
+      // state 的引用，否则 zundo 的撤销快照会被污染导致 Ctrl+Z 失效。
       addBox: (type, box) => {
         const id = genId()
         set((s) => {
@@ -322,14 +329,13 @@ export const useEditorStore = create<EditorState>()(
           const frame = elements[s.currentFrameIndex]
           if (!frame) return s
           const newBox: Box = { ...box, id }
-          if (type === 'hurtbox') {
-            frame.hurtboxes = [...frame.hurtboxes, newBox]
-          } else if (type === 'hitbox') {
-            frame.hitboxes = [...frame.hitboxes, newBox]
-          } else {
-            frame.jcboxes = [...frame.jcboxes, newBox]
-          }
-          elements[s.currentFrameIndex] = { ...frame }
+          const newFrame: AnimElement =
+            type === 'hurtbox'
+              ? { ...frame, hurtboxes: [...frame.hurtboxes, newBox] }
+              : type === 'hitbox'
+              ? { ...frame, hitboxes: [...frame.hitboxes, newBox] }
+              : { ...frame, jcboxes: [...frame.jcboxes, newBox] }
+          elements[s.currentFrameIndex] = newFrame
           return { animation: { ...s.animation, elements }, selectedBoxId: id, selectedBoxType: type }
         })
         return id
@@ -340,11 +346,14 @@ export const useEditorStore = create<EditorState>()(
           const elements = [...s.animation.elements]
           const frame = elements[s.currentFrameIndex]
           if (!frame) return s
-          const list = type === 'hurtbox' ? frame.hurtboxes : type === 'hitbox' ? frame.hitboxes : frame.jcboxes
-          const idx = list.findIndex((b) => b.id === id)
-          if (idx < 0) return s
-          list[idx] = { ...list[idx], ...data }
-          elements[s.currentFrameIndex] = { ...frame }
+          const mapList = (list: Box[]) => list.map((b) => (b.id === id ? { ...b, ...data } : b))
+          const newFrame: AnimElement =
+            type === 'hurtbox'
+              ? { ...frame, hurtboxes: mapList(frame.hurtboxes) }
+              : type === 'hitbox'
+              ? { ...frame, hitboxes: mapList(frame.hitboxes) }
+              : { ...frame, jcboxes: mapList(frame.jcboxes) }
+          elements[s.currentFrameIndex] = newFrame
           return { animation: { ...s.animation, elements } }
         }),
 
@@ -353,14 +362,14 @@ export const useEditorStore = create<EditorState>()(
           const elements = [...s.animation.elements]
           const frame = elements[s.currentFrameIndex]
           if (!frame) return s
-          if (type === 'hurtbox') {
-            frame.hurtboxes = frame.hurtboxes.filter((b) => b.id !== id)
-          } else if (type === 'hitbox') {
-            frame.hitboxes = frame.hitboxes.filter((b) => b.id !== id)
-          } else {
-            frame.jcboxes = frame.jcboxes.filter((b) => b.id !== id)
-          }
-          elements[s.currentFrameIndex] = { ...frame }
+          const filterList = (list: Box[]) => list.filter((b) => b.id !== id)
+          const newFrame: AnimElement =
+            type === 'hurtbox'
+              ? { ...frame, hurtboxes: filterList(frame.hurtboxes) }
+              : type === 'hitbox'
+              ? { ...frame, hitboxes: filterList(frame.hitboxes) }
+              : { ...frame, jcboxes: filterList(frame.jcboxes) }
+          elements[s.currentFrameIndex] = newFrame
           return { animation: { ...s.animation, elements }, selectedBoxId: null, selectedBoxType: null }
         }),
 
@@ -398,8 +407,10 @@ export const useEditorStore = create<EditorState>()(
           const elements = [...s.animation.elements]
           const frame = elements[s.currentFrameIndex]
           if (!frame) return s
-          frame.spawnPoints = [...frame.spawnPoints, { ...point, id }]
-          elements[s.currentFrameIndex] = { ...frame }
+          elements[s.currentFrameIndex] = {
+            ...frame,
+            spawnPoints: [...frame.spawnPoints, { ...point, id }],
+          }
           return { animation: { ...s.animation, elements } }
         })
         return id
@@ -410,10 +421,12 @@ export const useEditorStore = create<EditorState>()(
           const elements = [...s.animation.elements]
           const frame = elements[s.currentFrameIndex]
           if (!frame) return s
-          frame.spawnPoints = frame.spawnPoints.map((p) =>
-            p.id === id ? { ...p, ...data } : p
-          )
-          elements[s.currentFrameIndex] = { ...frame }
+          elements[s.currentFrameIndex] = {
+            ...frame,
+            spawnPoints: frame.spawnPoints.map((p) =>
+              p.id === id ? { ...p, ...data } : p
+            ),
+          }
           return { animation: { ...s.animation, elements } }
         }),
 
@@ -422,8 +435,10 @@ export const useEditorStore = create<EditorState>()(
           const elements = [...s.animation.elements]
           const frame = elements[s.currentFrameIndex]
           if (!frame) return s
-          frame.spawnPoints = frame.spawnPoints.filter((p) => p.id !== id)
-          elements[s.currentFrameIndex] = { ...frame }
+          elements[s.currentFrameIndex] = {
+            ...frame,
+            spawnPoints: frame.spawnPoints.filter((p) => p.id !== id),
+          }
           return { animation: { ...s.animation, elements } }
         }),
 

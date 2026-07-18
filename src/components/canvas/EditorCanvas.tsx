@@ -89,6 +89,32 @@ export default function EditorCanvas() {
   const dragStartPos = useRef<{ x: number; y: number } | null>(null)
   const lockedAxis = useRef<'x' | 'y' | null>(null)
 
+  // 通用拖拽约束（Shift 锁主轴向），供精灵/框/发射点/推挤框等所有可拖拽对象复用。
+  // 与精灵自带的拖拽逻辑共用上面两个 ref（同一时刻只拖一个对象）。
+  const shiftDragStart = (e: Konva.KonvaEventObject<DragEvent>) => {
+    dragStartPos.current = { x: e.target.x(), y: e.target.y() }
+    lockedAxis.current = null
+  }
+  const shiftDragMove = (e: Konva.KonvaEventObject<DragEvent>) => {
+    const start = dragStartPos.current
+    if (!start) return
+    if (!e.evt.shiftKey) {
+      lockedAxis.current = null
+      return
+    }
+    const dx = e.target.x() - start.x
+    const dy = e.target.y() - start.y
+    if (!lockedAxis.current) {
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return
+      lockedAxis.current = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y'
+    }
+    if (lockedAxis.current === 'x') {
+      e.target.y(start.y) // 冻结垂直，只允许水平移动
+    } else {
+      e.target.x(start.x) // 冻结水平，只允许垂直移动
+    }
+  }
+
   useEffect(() => {
     // 统一 Transformer：推挤框、受击框、攻击框在同一 Layer 中，
     // 选中哪个就绑定哪个节点。
@@ -284,6 +310,8 @@ export default function EditorCanvas() {
         draggable={tool === 'select' && isSelected}
         onClick={(e) => { e.cancelBubble = true; useEditorStore.getState().selectBox(type, box.id) }}
         ref={isSelected ? (node) => { selectedNodeRef.current = node } : undefined}
+        onDragStart={shiftDragStart}
+        onDragMove={shiftDragMove}
         onDragEnd={(e) => {
           const newSx = e.target.x()
           const newSy = e.target.y() + sh
@@ -332,6 +360,8 @@ export default function EditorCanvas() {
           listening={tool === 'select'}
           draggable={tool === 'select' && isSelected}
           onClick={(e) => { e.cancelBubble = true; useEditorStore.getState().selectBox('spawnpoint', point.id) }}
+          onDragStart={shiftDragStart}
+          onDragMove={shiftDragMove}
           onDragEnd={(e) => {
             const [gx, gy] = toGame(e.target.x(), e.target.y())
             useEditorStore.getState().updateSpawnPoint(point.id, {
@@ -671,6 +701,8 @@ export default function EditorCanvas() {
                 draggable={tool === 'select' && isSelected}
                 onClick={(e) => { e.cancelBubble = true; useEditorStore.getState().selectBox('pushbox', pb.id) }}
                 ref={isSelected ? (node) => { selectedNodeRef.current = node } : undefined}
+                onDragStart={shiftDragStart}
+                onDragMove={shiftDragMove}
                 onDragEnd={(e) => {
                   const [gx, gy] = toGame(e.target.x(), e.target.y() + sh)
                   useEditorStore.getState().updatePushbox('stand', {
