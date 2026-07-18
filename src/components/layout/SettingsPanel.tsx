@@ -20,6 +20,15 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   )
 }
 
+function StatRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-2 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="truncate font-mono text-muted-foreground" title={typeof value === 'string' ? value : undefined}>{value}</span>
+    </div>
+  )
+}
+
 const PREV_COLORS = [
   { label: '蓝', val: '#0096ff' },
   { label: '青', val: '#00ffcc' },
@@ -57,12 +66,15 @@ export default function SettingsPanel() {
             <Row label="名称">
               <Input value={animation.name} onChange={(e) => updateAnimationMeta({ name: e.target.value })} className="h-7" />
             </Row>
-            <Row label="总时长">
-              <span className="text-xs text-muted-foreground">{animation.totalTicks} Tick</span>
-            </Row>
             <Row label="循环(导出)">
               <Switch checked={animation.loop} onCheckedChange={(v) => updateAnimationMeta({ loop: v })} />
             </Row>
+            <Separator className="my-1" />
+            <span className="text-xs font-medium text-muted-foreground">信息</span>
+            <div className="flex flex-col gap-1">
+              <StatRow label="总时长" value={`${animation.totalTicks} Tick`} />
+              <StatRow label="帧数" value={animation.elements.length} />
+            </div>
           </AccordionContent>
         </AccordionItem>
 
@@ -161,19 +173,6 @@ export default function SettingsPanel() {
           </AccordionContent>
         </AccordionItem>
 
-        <AccordionItem value="help">
-          <AccordionTrigger className="text-xs">快捷键</AccordionTrigger>
-          <AccordionContent className="flex flex-col gap-1 px-1 pb-3 text-[11px] text-muted-foreground">
-            <div>空格 — 播放/暂停（轻点）/ 平移（按住拖拽）</div>
-            <div>← → — 切换帧（无选中时）</div>
-            <div>方向键 — 微调选中元素（Shift=10px）</div>
-            <div>Shift + 拖拽 — 锁主轴向移动</div>
-            <div>Esc — 取消选中</div>
-            <div>Delete — 删除选中对象</div>
-            <div>Ctrl+Z / Ctrl+Y — 撤销/重做</div>
-            <div>滚轮 — 缩放画布</div>
-          </AccordionContent>
-        </AccordionItem>
       </Accordion>
     </div>
   )

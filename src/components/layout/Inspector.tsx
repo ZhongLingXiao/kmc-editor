@@ -3,6 +3,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Info, Footprints, AlignCenter } from 'lucide-react'
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -21,6 +23,29 @@ function NumInput({ value, onChange }: { value: number; onChange: (v: number) =>
       onChange={(e) => onChange(parseInt(e.target.value) || 0)}
       className="h-7"
     />
+  )
+}
+
+function GroupLabel({ children, hint }: { children: React.ReactNode; hint: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="flex w-fit cursor-help items-center gap-1 text-xs font-medium text-muted-foreground">
+          {children}
+          <Info className="size-3 opacity-60" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-[220px]">{hint}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function StatRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-2 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="truncate font-mono text-muted-foreground" title={typeof value === 'string' ? value : undefined}>{value}</span>
+    </div>
   )
 }
 
@@ -108,21 +133,23 @@ export default function Inspector() {
             </Row>
             {frame.sprite.w > 0 ? (
               <>
-                <Row label="尺寸">
-                  <span className="text-xs text-muted-foreground">{frame.sprite.w}×{frame.sprite.h}</span>
-                </Row>
-                <p className="text-[11px] leading-relaxed text-muted-foreground">
-                  角色根点 <span className="text-destructive">Root (0,0)</span> 固定不可编辑。用“精灵对齐”工具拖动图片，或方向键微调。
-                </p>
-                <Row label="轴点X"><NumInput value={frame.offset.x} onChange={(v) => setOffset(currentFrameIndex, v, frame.offset.y)} /></Row>
-                <Row label="轴点Y"><NumInput value={frame.offset.y} onChange={(v) => setOffset(currentFrameIndex, frame.offset.x, v)} /></Row>
-                <div className="mt-1 flex gap-2">
+                <GroupLabel hint="图片对齐到角色根点 Root(0,0) 的像素坐标">轴点</GroupLabel>
+                <Row label="X"><NumInput value={frame.offset.x} onChange={(v) => setOffset(currentFrameIndex, v, frame.offset.y)} /></Row>
+                <Row label="Y"><NumInput value={frame.offset.y} onChange={(v) => setOffset(currentFrameIndex, frame.offset.x, v)} /></Row>
+                <GroupLabel hint="脚底中心=站立着地；图片中心=几何中心">快速设置</GroupLabel>
+                <div className="flex gap-2">
                   <Button variant="outline" size="sm" className="flex-1" onClick={() => setOffset(currentFrameIndex, Math.round(frame.sprite.w / 2), frame.sprite.h)}>
-                    脚底中心
+                    <Footprints /> 脚底中心
                   </Button>
                   <Button variant="outline" size="sm" className="flex-1" onClick={() => setOffset(currentFrameIndex, Math.round(frame.sprite.w / 2), Math.round(frame.sprite.h / 2))}>
-                    图片中心
+                    <AlignCenter /> 图片中心
                   </Button>
+                </div>
+                <Separator className="my-1" />
+                <span className="text-xs font-medium text-muted-foreground">信息</span>
+                <div className="flex flex-col gap-1">
+                  <StatRow label="文件名" value={frame.sprite.path || '—'} />
+                  <StatRow label="尺寸" value={`${frame.sprite.w}×${frame.sprite.h}`} />
                 </div>
               </>
             ) : (

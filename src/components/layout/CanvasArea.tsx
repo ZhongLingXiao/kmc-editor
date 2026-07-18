@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useEditorStore } from '../../store/editorStore'
 import EditorCanvas from '../canvas/EditorCanvas'
+import ShortcutsOverlay from './ShortcutsOverlay'
 import { Badge } from '@/components/ui/badge'
 import {
   ContextMenu,
@@ -171,6 +172,8 @@ export default function CanvasArea() {
           </ContextMenuSub>
         </ContextMenuContent>
       </ContextMenu>
+
+      <ShortcutsOverlay />
 
       <Badge variant="secondary" className="pointer-events-none absolute bottom-2 right-3 font-normal">
         缩放 {Math.round(scale * 100)}%
