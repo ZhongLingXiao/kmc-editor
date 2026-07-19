@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useEditorStore } from '../../store/editorStore'
 import EditorCanvas from '../canvas/EditorCanvas'
 import ShortcutsOverlay from './ShortcutsOverlay'
+import PreviewShelf from './PreviewShelf'
 import { Badge } from '@/components/ui/badge'
 import {
   ContextMenu,
@@ -38,6 +39,7 @@ export default function CanvasArea() {
   const [isPanning, setIsPanning] = useState(false)
   const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 })
   const [spaceHeld, setSpaceHeld] = useState(false)
+  const [facing, setFacing] = useState<'right' | 'left'>('right')
 
   // 自适应画布大小
   useEffect(() => {
@@ -149,7 +151,7 @@ export default function CanvasArea() {
             onDragOver={handleDragOver}
             style={{ cursor }}
           >
-            <EditorCanvas />
+            <EditorCanvas facing={facing} />
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
@@ -209,6 +211,7 @@ export default function CanvasArea() {
         </ContextMenuContent>
       </ContextMenu>
 
+      <PreviewShelf facing={facing} onFacingChange={setFacing} containerRef={containerRef} />
       <ShortcutsOverlay />
 
       <Badge variant="secondary" className="pointer-events-none absolute bottom-2 right-3 font-normal">

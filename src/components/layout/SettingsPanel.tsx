@@ -47,8 +47,6 @@ export default function SettingsPanel() {
   const updateAnimationMeta = useEditorStore((s) => s.updateAnimationMeta)
   const onionSkin = useEditorStore((s) => s.onionSkin)
   const updateOnionSkin = useEditorStore((s) => s.updateOnionSkin)
-  const showLayers = useEditorStore((s) => s.showLayers)
-  const toggleLayer = useEditorStore((s) => s.toggleLayer)
   const settingsOpen = useEditorStore((s) => s.settingsOpen)
   const setSettingsOpen = useEditorStore((s) => s.setSettingsOpen)
 
@@ -155,19 +153,6 @@ export default function SettingsPanel() {
             <Row label="碰撞框">
               <Switch checked={onionSkin.showBoxes} onCheckedChange={(v) => updateOnionSkin({ showBoxes: v })} />
             </Row>
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value="display">
-          <AccordionTrigger className="text-xs">显示</AccordionTrigger>
-          <AccordionContent className="flex flex-col gap-2.5 px-1 pb-3">
-            <Row label="网格">
-              <Switch checked={showLayers.grid} onCheckedChange={() => toggleLayer('grid')} />
-            </Row>
-            <Row label="洋葱皮">
-              <Switch checked={showLayers.onionSkin} onCheckedChange={() => toggleLayer('onionSkin')} />
-            </Row>
-            <p className="text-[11px] text-muted-foreground">受击框/攻击框等类型的显隐，请在左侧“场景大纲”的组眼睛中切换。</p>
           </AccordionContent>
         </AccordionItem>
 

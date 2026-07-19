@@ -59,7 +59,8 @@ function useSprite(data: string): HTMLImageElement | undefined {
   return img
 }
 
-export default function EditorCanvas() {
+export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 'left' }) {
+  const flipped = facing === 'left'
   const canvasWidth = useEditorStore((s) => s.canvasWidth)
   const canvasHeight = useEditorStore((s) => s.canvasHeight)
   const originX = useEditorStore((s) => s.originX)
@@ -118,6 +119,11 @@ export default function EditorCanvas() {
   useEffect(() => {
     // 统一 Transformer：推挤框、受击框、攻击框在同一 Layer 中，
     // 选中哪个就绑定哪个节点。
+    if (flipped) {
+      transformerRef.current?.nodes([])
+      transformerRef.current?.getLayer()?.batchDraw()
+      return
+    }
     if (transformerRef.current && selectedNodeRef.current && selectedBoxId) {
       transformerRef.current.nodes([selectedNodeRef.current])
       transformerRef.current.getLayer()?.batchDraw()
@@ -125,7 +131,7 @@ export default function EditorCanvas() {
       transformerRef.current.nodes([])
       transformerRef.current.getLayer()?.batchDraw()
     }
-  }, [selectedBoxId, selectedBoxType, frame, animation.pushbox.stand])
+  }, [selectedBoxId, selectedBoxType, frame, animation.pushbox.stand, flipped])
 
   type SelectableType = 'hurtbox' | 'hitbox' | 'jcbox' | 'pushbox' | 'spawnpoint'
   type SelectionCandidate = { type: SelectableType; id: string; priority: number }
@@ -170,6 +176,7 @@ export default function EditorCanvas() {
   }
 
   function handleStageClick(e: Konva.KonvaEventObject<MouseEvent>) {
+    if (flipped) return // 朝向预览只读：禁止选中
     if (tool !== 'select') return
     if (e.target.getParent()?.getClassName() === 'Transformer') return
 
@@ -191,6 +198,7 @@ export default function EditorCanvas() {
 
   // 鼠标按下：开始绘制（选择工具的点击在 Stage onClick 中处理）
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    if (flipped) return // 朝向预览只读：禁止绘制
     if (tool === 'select') return
     if (tool === 'anchor') {
       // 图片对齐模式只允许直接拖拽当前精灵；Root (0,0) 始终固定。
@@ -286,7 +294,9 @@ export default function EditorCanvas() {
     color: string,
     borderColor: string
   ) {
-    const [sx, sy] = toScreen(box.x, box.y) // 左下角 → 屏幕
+    // 翻转预览：box 整体绕 X=0 镜像，等价于左下角 x 取 -(x+w)
+    const renderX = flipped ? -(box.x + box.w) : box.x
+    const [sx, sy] = toScreen(renderX, box.y) // 左下角 → 屏幕
     const sw = toScreenSize(box.w)
     const sh = toScreenSize(box.h)
     const screenX = sx
@@ -306,10 +316,10 @@ export default function EditorCanvas() {
         strokeWidth={isSelected ? 2 : 1}
         dash={isSelected ? [] : [4, 2]}
         // 所有框都可被点击选中；拖拽只允许已选中对象，避免误移动。
-        listening={tool === 'select'}
-        draggable={tool === 'select' && isSelected}
+        listening={tool === 'select' && !flipped}
+        draggable={tool === 'select' && isSelected && !flipped}
         onClick={(e) => { e.cancelBubble = true; useEditorStore.getState().selectBox(type, box.id) }}
-        ref={isSelected ? (node) => { selectedNodeRef.current = node } : undefined}
+        ref={isSelected && !flipped ? (node) => { selectedNodeRef.current = node } : undefined}
         onDragStart={shiftDragStart}
         onDragMove={shiftDragMove}
         onDragEnd={(e) => {
@@ -351,7 +361,8 @@ export default function EditorCanvas() {
 
   // 渲染发射点
   function renderSpawnPoint(point: { id: string; name: string; x: number; y: number }) {
-    const [sx, sy] = toScreen(point.x, point.y)
+    const px = flipped ? -point.x : point.x
+    const [sx, sy] = toScreen(px, point.y)
     const isSelected = selectedBoxId === point.id && selectedBoxType === 'spawnpoint'
     return (
       <Group key={point.id}>
@@ -362,8 +373,8 @@ export default function EditorCanvas() {
           fill={COLORS.spawnpoint}
           stroke={isSelected ? '#fff' : 'rgba(0,0,0,0.5)'}
           strokeWidth={isSelected ? 2 : 1}
-          listening={tool === 'select'}
-          draggable={tool === 'select' && isSelected}
+          listening={tool === 'select' && !flipped}
+          draggable={tool === 'select' && isSelected && !flipped}
           onClick={(e) => { e.cancelBubble = true; useEditorStore.getState().selectBox('spawnpoint', point.id) }}
           onDragStart={shiftDragStart}
           onDragMove={shiftDragMove}
@@ -395,9 +406,11 @@ export default function EditorCanvas() {
     interactive: boolean = false
   ): React.ReactNode {
     if (!img || !elem) return null
-    const x = originX - elem.offset.x * scale
+    // 翻转预览：以 Root(originX) 为镜像轴，sprite 用 scaleX=-1。
+    // 推导：翻转后 pivot 仍需落在 originX，故 x = originX + offset.x*scale。
+    const x = flipped ? originX + elem.offset.x * scale : originX - elem.offset.x * scale
     const y = originY - elem.offset.y * scale
-    const canAlign = interactive && tool === 'anchor'
+    const canAlign = interactive && tool === 'anchor' && !flipped
 
     return (
       <KonvaImage
@@ -406,6 +419,7 @@ export default function EditorCanvas() {
         y={y}
         width={img.width * scale}
         height={img.height * scale}
+        scaleX={flipped ? -1 : 1}
         opacity={opacity}
         listening={canAlign}
         draggable={canAlign}
@@ -484,7 +498,7 @@ export default function EditorCanvas() {
     if (onionSkin.showSprite && elem.sprite.data) {
       const img = getSprite(elem.sprite.data)
       if (img) {
-        const x = originX - elem.offset.x * scale
+        const x = flipped ? originX + elem.offset.x * scale : originX - elem.offset.x * scale
         const y = originY - elem.offset.y * scale
         const w = img.width * scale
         const h = img.height * scale
@@ -497,8 +511,9 @@ export default function EditorCanvas() {
               y={y}
               width={w}
               height={h}
+              scaleX={flipped ? -1 : 1}
             />
-            {/* 用 source-atop 混合模式叠色：只影响不透明像素 */}
+            {/* 用 source-atop 混合模式叠色：只影响不透明像素。翻转时 tint 同步 scaleX 以覆盖镜像后的精灵区域 */}
             <Rect
               key="sprite-tint"
               x={x}
@@ -507,6 +522,7 @@ export default function EditorCanvas() {
               height={h}
               fill={color}
               globalCompositeOperation="source-atop"
+              scaleX={flipped ? -1 : 1}
             />
           </Group>
         )
@@ -593,7 +609,7 @@ export default function EditorCanvas() {
   // 精灵轴点是图片内部坐标，经过对齐后始终与角色 Root (0,0) 重合，因此不单独画第二个标记。
   function renderImageOrigin() {
     if (!frame) return null
-    const x = originX - frame.offset.x * scale
+    const x = flipped ? originX + frame.offset.x * scale : originX - frame.offset.x * scale
     const y = originY - frame.offset.y * scale
     return (
       <Group listening={false}>
@@ -694,7 +710,8 @@ export default function EditorCanvas() {
         {showLayers.pushbox && animation.pushbox.stand && (
           (() => {
             const pb = animation.pushbox.stand
-            const [sx, sy] = toScreen(pb.x, pb.y)
+            const pbX = flipped ? -(pb.x + pb.w) : pb.x
+            const [sx, sy] = toScreen(pbX, pb.y)
             const sw = toScreenSize(pb.w)
             const sh = toScreenSize(pb.h)
             const isSelected = selectedBoxId === pb.id && selectedBoxType === 'pushbox'
@@ -708,10 +725,10 @@ export default function EditorCanvas() {
                 stroke={COLORS.pushboxBorder}
                 strokeWidth={isSelected ? 2 : 1}
                 dash={isSelected ? [] : [6, 3]}
-                listening={tool === 'select'}
-                draggable={tool === 'select' && isSelected}
+                listening={tool === 'select' && !flipped}
+                draggable={tool === 'select' && isSelected && !flipped}
                 onClick={(e) => { e.cancelBubble = true; useEditorStore.getState().selectBox('pushbox', pb.id) }}
-                ref={isSelected ? (node) => { selectedNodeRef.current = node } : undefined}
+                ref={isSelected && !flipped ? (node) => { selectedNodeRef.current = node } : undefined}
                 onDragStart={shiftDragStart}
                 onDragMove={shiftDragMove}
                 onDragEnd={(e) => {
