@@ -11,7 +11,7 @@ const SHORTCUTS: { keys: string[]; desc: string }[] = [
   { keys: ['↑ ↓ ← →'], desc: '微调选中元素' },
   { keys: ['Shift', '拖拽'], desc: '锁主轴向' },
   { keys: ['Esc'], desc: '取消选中' },
-  { keys: ['Delete'], desc: '删除选中' },
+  { keys: ['Delete'], desc: '删除选中/当前帧' },
   { keys: ['Ctrl', 'Z'], desc: '撤销' },
   { keys: ['Ctrl', 'Y'], desc: '重做' },
   { keys: ['滚轮'], desc: '缩放画布' },

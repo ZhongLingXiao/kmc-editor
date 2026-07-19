@@ -132,18 +132,22 @@ export default function App() {
         return
       }
 
-      // 删除选中对象
+      // 删除：有选中对象则删对象，否则删当前帧（与方向键"无选中则操作帧"一致）
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const state = useEditorStore.getState()
         const { selectedBoxType, selectedBoxId } = state
-        if (!selectedBoxType || !selectedBoxId) return
-        e.preventDefault()
-        if (selectedBoxType === 'hurtbox' || selectedBoxType === 'hitbox' || selectedBoxType === 'jcbox') {
-          state.removeBox(selectedBoxType, selectedBoxId)
-        } else if (selectedBoxType === 'pushbox') {
-          state.setPushbox('stand', null)
-        } else if (selectedBoxType === 'spawnpoint') {
-          state.removeSpawnPoint(selectedBoxId)
+        if (selectedBoxType && selectedBoxId) {
+          e.preventDefault()
+          if (selectedBoxType === 'hurtbox' || selectedBoxType === 'hitbox' || selectedBoxType === 'jcbox') {
+            state.removeBox(selectedBoxType, selectedBoxId)
+          } else if (selectedBoxType === 'pushbox') {
+            state.setPushbox('stand', null)
+          } else if (selectedBoxType === 'spawnpoint') {
+            state.removeSpawnPoint(selectedBoxId)
+          }
+        } else if (state.currentFrameIndex >= 0 && state.animation.elements.length > 1) {
+          e.preventDefault()
+          state.removeFrame(state.currentFrameIndex)
         }
       } else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
         const state = useEditorStore.getState()

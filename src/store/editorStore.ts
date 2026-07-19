@@ -209,7 +209,7 @@ export const useEditorStore = create<EditorState>()(
       gridSize: 20,
 
       // === 动画管理 ===
-      setAnimation: (data) =>
+      setAnimation: (data) => {
         set((s) => ({
           animation: data,
           currentFrameIndex: data.elements.length > 0 ? 0 : -1,
@@ -217,7 +217,10 @@ export const useEditorStore = create<EditorState>()(
           // 从文件恢复编辑器设置
           onionSkin: data.editor?.onionSkin ?? s.onionSkin,
           showLayers: data.editor?.showLayers ?? s.showLayers,
-        })),
+        }))
+        // 载入/新建/导入是全新起点：清空撤销历史，避免 Ctrl+Z 回退到打开前
+        useEditorStore.temporal.getState().clear()
+      },
 
       updateAnimationMeta: (meta) =>
         set((s) => ({ animation: { ...s.animation, ...meta } })),
