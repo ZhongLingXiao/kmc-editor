@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { Info, Footprints, AlignCenter } from 'lucide-react'
+import { Info, Footprints, AlignCenter, Trash2 } from 'lucide-react'
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -54,6 +54,8 @@ export default function Inspector() {
   const currentFrameIndex = useEditorStore((s) => s.currentFrameIndex)
   const selectedBoxId = useEditorStore((s) => s.selectedBoxId)
   const selectedBoxType = useEditorStore((s) => s.selectedBoxType)
+  const selectedIds = useEditorStore((s) => s.selectedIds)
+  const removeSelected = useEditorStore((s) => s.removeSelected)
   const updateBox = useEditorStore((s) => s.updateBox)
   const updatePushbox = useEditorStore((s) => s.updatePushbox)
   const updateSpawnPoint = useEditorStore((s) => s.updateSpawnPoint)
@@ -61,6 +63,7 @@ export default function Inspector() {
   const setOffset = useEditorStore((s) => s.setOffset)
 
   const frame = currentFrameIndex >= 0 ? animation.elements[currentFrameIndex] : null
+  const multi = selectedIds.length > 1
 
   const selected =
     selectedBoxId && selectedBoxType
@@ -76,7 +79,9 @@ export default function Inspector() {
       : null
 
   let title = '检视器'
-  if (selected?.data) {
+  if (multi) {
+    title = `多选 (${selectedIds.length})`
+  } else if (selected?.data) {
     title = selected.type === 'hurtbox' ? '受击框' : selected.type === 'hitbox' ? '攻击框' : selected.type === 'jcbox' ? 'JC框' : selected.type === 'pushbox' ? '推挤框（站立）' : '发射点'
   } else if (frame) {
     title = `帧 ${currentFrameIndex}`
@@ -89,8 +94,19 @@ export default function Inspector() {
       </div>
       <Separator />
       <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-auto p-3">
-        {/* 选中对象属性 */}
-        {selected?.data && (selected.type === 'hurtbox' || selected.type === 'hitbox' || selected.type === 'jcbox') && (
+        {/* 多选：显示计数与批量删除（批量改数值留二期） */}
+        {multi && (
+          <>
+            <p className="text-xs text-muted-foreground">已选 {selectedIds.length} 个对象</p>
+            <Button variant="outline" size="sm" className="text-destructive" onClick={() => removeSelected()}>
+              <Trash2 /> 批量删除
+            </Button>
+            <p className="text-[11px] text-muted-foreground">方向键整体微调，拖拽整体平移。</p>
+          </>
+        )}
+
+        {/* 选中对象属性（单选） */}
+        {!multi && selected?.data && (selected.type === 'hurtbox' || selected.type === 'hitbox' || selected.type === 'jcbox') && (
           <>
             <Row label="X"><NumInput value={selected.data.x} onChange={(v) => updateBox(selected.type, selectedBoxId!, { x: v })} /></Row>
             <Row label="Y"><NumInput value={selected.data.y} onChange={(v) => updateBox(selected.type, selectedBoxId!, { y: v })} /></Row>
@@ -99,7 +115,7 @@ export default function Inspector() {
           </>
         )}
 
-        {selected?.type === 'pushbox' && selected.data && (
+        {!multi && selected?.type === 'pushbox' && selected.data && (
           <>
             <p className="text-[11px] leading-relaxed text-muted-foreground">
               推挤框是角色物理占位，坐标相对固定 Root (0,0)。可拖拽、缩放或直接输入数值。
@@ -112,7 +128,7 @@ export default function Inspector() {
           </>
         )}
 
-        {selected?.type === 'spawnpoint' && selected.data && (
+        {!multi && selected?.type === 'spawnpoint' && selected.data && (
           <>
             <Row label="名称">
               <Input value={selected.data.name} onChange={(e) => updateSpawnPoint(selectedBoxId!, { name: e.target.value })} className="h-7" />
@@ -123,7 +139,7 @@ export default function Inspector() {
         )}
 
         {/* 无选中对象：显示帧属性 */}
-        {frame && !selected?.data && (
+        {frame && !multi && !selected?.data && (
           <>
             <Row label="时长">
               <div className="flex items-center gap-2">

@@ -49,6 +49,35 @@ function findFrameIndex(elements: AnimElement[], tick: number): number {
   return elements.length - 1 // 到达/超过末尾，落在最后一帧
 }
 
+/** 查找某 id 对应的对象类型（用于多选时回退主选） */
+type SelectableType = 'hurtbox' | 'hitbox' | 'jcbox' | 'pushbox' | 'spawnpoint'
+function findTypeId(animation: AnimationData, frameIndex: number, id: string): SelectableType | null {
+  const frame = animation.elements[frameIndex]
+  if (!frame) return null
+  if (frame.hurtboxes.some((b) => b.id === id)) return 'hurtbox'
+  if (frame.hitboxes.some((b) => b.id === id)) return 'hitbox'
+  if (frame.jcboxes.some((b) => b.id === id)) return 'jcbox'
+  if (frame.spawnPoints.some((p) => p.id === id)) return 'spawnpoint'
+  if (animation.pushbox.stand?.id === id) return 'pushbox'
+  return null
+}
+
+/** 根据当前选区计算主选（最后操作项）；preferred 优先，否则取末尾 */
+function primaryFromIds(
+  animation: AnimationData,
+  frameIndex: number,
+  ids: string[],
+  preferredId: string | null,
+  preferredType: SelectableType | null
+): { id: string | null; type: SelectableType | null } {
+  if (preferredId && ids.includes(preferredId)) {
+    return { id: preferredId, type: preferredType ?? findTypeId(animation, frameIndex, preferredId) }
+  }
+  if (ids.length === 0) return { id: null, type: null }
+  const id = ids[ids.length - 1]
+  return { id, type: findTypeId(animation, frameIndex, id) }
+}
+
 /** 创建默认动画 */
 function createDefaultAnimation(): AnimationData {
   return {
@@ -72,6 +101,7 @@ interface EditorState {
   tool: Tool
   selectedBoxId: string | null
   selectedBoxType: 'hurtbox' | 'hitbox' | 'jcbox' | 'pushbox' | 'spawnpoint' | null
+  selectedIds: string[] // 多选：全部选中对象 id（跨类型），主选 = 最后操作项
   showLayers: ShowLayers
   onionSkin: OnionSkinSettings
   settingsOpen: string[] // 设置面板 Accordion 展开项（编辑器态，持久跨 tab 切换）
@@ -117,6 +147,11 @@ interface EditorState {
   updateBox: (type: 'hurtbox' | 'hitbox' | 'jcbox', id: string, data: Partial<Box>) => void
   removeBox: (type: 'hurtbox' | 'hitbox' | 'jcbox', id: string) => void
   selectBox: (type: 'hurtbox' | 'hitbox' | 'jcbox' | 'pushbox' | 'spawnpoint' | null, id: string | null) => void
+  toggleSelection: (type: 'hurtbox' | 'hitbox' | 'jcbox' | 'pushbox' | 'spawnpoint', id: string) => void
+  selectRange: (ids: string[], primaryId: string, primaryType: 'hurtbox' | 'hitbox' | 'jcbox' | 'pushbox' | 'spawnpoint') => void
+  clearSelection: () => void
+  moveSelected: (dx: number, dy: number) => void
+  removeSelected: () => void
 
   // === Actions: Pushbox ===
   setPushbox: (type: 'stand' | 'crouch' | 'air', box: Omit<Box, 'id'> | null) => void
@@ -167,6 +202,7 @@ export const useEditorStore = create<EditorState>()(
       tool: 'select',
       selectedBoxId: null,
       selectedBoxType: null,
+      selectedIds: [],
       showLayers: {
         hurtbox: true,
         hitbox: true,
@@ -217,6 +253,9 @@ export const useEditorStore = create<EditorState>()(
           // 从文件恢复编辑器设置
           onionSkin: data.editor?.onionSkin ?? s.onionSkin,
           showLayers: data.editor?.showLayers ?? s.showLayers,
+          selectedIds: [],
+          selectedBoxId: null,
+          selectedBoxType: null,
         }))
         // 载入/新建/导入是全新起点：清空撤销历史，避免 Ctrl+Z 回退到打开前
         useEditorStore.temporal.getState().clear()
@@ -272,6 +311,9 @@ export const useEditorStore = create<EditorState>()(
             animation: { ...s.animation, elements, totalTicks },
             currentFrameIndex: Math.max(0, newIndex),
             currentTick: newTick,
+            selectedIds: [],
+            selectedBoxId: null,
+            selectedBoxType: null,
           }
         }),
 
@@ -337,15 +379,20 @@ export const useEditorStore = create<EditorState>()(
       setFrame: (index) =>
         set((s) => {
           if (index < 0 || index >= s.animation.elements.length) return s
-          return { currentFrameIndex: index, currentTick: frameStartTick(s.animation.elements, index) }
+          return { currentFrameIndex: index, currentTick: frameStartTick(s.animation.elements, index), selectedIds: [], selectedBoxId: null, selectedBoxType: null }
         }),
 
       // 移动播放头：currentFrameIndex 由 tick 派生，可在帧内任意 tick 停留
       setCurrentTick: (tick) =>
         set((s) => {
-          if (s.animation.elements.length === 0) return { currentTick: 0, currentFrameIndex: -1 }
+          if (s.animation.elements.length === 0) return { currentTick: 0, currentFrameIndex: -1, selectedIds: [], selectedBoxId: null, selectedBoxType: null }
           const clamped = Math.max(0, Math.min(s.animation.totalTicks, tick))
-          return { currentTick: clamped, currentFrameIndex: findFrameIndex(s.animation.elements, clamped) }
+          const newFrame = findFrameIndex(s.animation.elements, clamped)
+          // 帧变化时清空选区，避免选中别帧对象
+          if (newFrame !== s.currentFrameIndex) {
+            return { currentTick: clamped, currentFrameIndex: newFrame, selectedIds: [], selectedBoxId: null, selectedBoxType: null }
+          }
+          return { currentTick: clamped, currentFrameIndex: newFrame }
         }),
 
       moveFrame: (from, to) =>
@@ -417,7 +464,7 @@ export const useEditorStore = create<EditorState>()(
               ? { ...frame, hitboxes: [...frame.hitboxes, newBox] }
               : { ...frame, jcboxes: [...frame.jcboxes, newBox] }
           elements[s.currentFrameIndex] = newFrame
-          return { animation: { ...s.animation, elements }, selectedBoxId: id, selectedBoxType: type }
+          return { animation: { ...s.animation, elements }, selectedIds: [id], selectedBoxId: id, selectedBoxType: type }
         })
         return id
       },
@@ -451,10 +498,86 @@ export const useEditorStore = create<EditorState>()(
               ? { ...frame, hitboxes: filterList(frame.hitboxes) }
               : { ...frame, jcboxes: filterList(frame.jcboxes) }
           elements[s.currentFrameIndex] = newFrame
-          return { animation: { ...s.animation, elements }, selectedBoxId: null, selectedBoxType: null }
+          const nextIds = s.selectedIds.filter((x) => x !== id)
+          const p = primaryFromIds({ ...s.animation, elements }, s.currentFrameIndex, nextIds, s.selectedBoxId, s.selectedBoxType)
+          return { animation: { ...s.animation, elements }, selectedIds: nextIds, selectedBoxId: p.id, selectedBoxType: p.type }
         }),
 
-      selectBox: (type, id) => set({ selectedBoxType: type, selectedBoxId: id }),
+      selectBox: (type, id) =>
+        set({ selectedBoxType: type, selectedBoxId: id, selectedIds: id ? [id] : [] }),
+
+      // 多选：Ctrl 切换某项进出选区，主选 = 最后操作项
+      toggleSelection: (type, id) =>
+        set((s) => {
+          const exists = s.selectedIds.includes(id)
+          const next = exists ? s.selectedIds.filter((x) => x !== id) : [...s.selectedIds, id]
+          const p = primaryFromIds(
+            s.animation,
+            s.currentFrameIndex,
+            next,
+            exists ? null : id,
+            exists ? null : type
+          )
+          return { selectedIds: next, selectedBoxId: p.id, selectedBoxType: p.type }
+        }),
+
+      // 多选：Shift 范围选，选区 = ids，主选 = 点击项
+      selectRange: (ids, primaryId, primaryType) =>
+        set({ selectedIds: ids, selectedBoxId: primaryId, selectedBoxType: primaryType }),
+
+      clearSelection: () => set({ selectedIds: [], selectedBoxId: null, selectedBoxType: null }),
+
+      // 整体平移所有选中对象（单次 set → 单步撤销）
+      moveSelected: (dx, dy) =>
+        set((s) => {
+          if (s.selectedIds.length === 0 || (dx === 0 && dy === 0)) return s
+          const elements = [...s.animation.elements]
+          const frame = elements[s.currentFrameIndex]
+          if (!frame) return s
+          const sel = new Set(s.selectedIds)
+          const moveBox = (b: Box) => (sel.has(b.id) ? { ...b, x: b.x + dx, y: b.y + dy } : b)
+          elements[s.currentFrameIndex] = {
+            ...frame,
+            hurtboxes: frame.hurtboxes.map(moveBox),
+            hitboxes: frame.hitboxes.map(moveBox),
+            jcboxes: frame.jcboxes.map(moveBox),
+            spawnPoints: frame.spawnPoints.map((p) => (sel.has(p.id) ? { ...p, x: p.x + dx, y: p.y + dy } : p)),
+          }
+          let pushbox = s.animation.pushbox
+          if (pushbox.stand && sel.has(pushbox.stand.id)) {
+            pushbox = { ...pushbox, stand: { ...pushbox.stand, x: pushbox.stand.x + dx, y: pushbox.stand.y + dy } }
+          }
+          return { animation: { ...s.animation, elements, pushbox } }
+        }),
+
+      // 删除所有选中对象，然后清空选区
+      removeSelected: () =>
+        set((s) => {
+          if (s.selectedIds.length === 0) return s
+          const sel = new Set(s.selectedIds)
+          const elements = [...s.animation.elements]
+          const frame = elements[s.currentFrameIndex]
+          if (frame) {
+            elements[s.currentFrameIndex] = {
+              ...frame,
+              hurtboxes: frame.hurtboxes.filter((b) => !sel.has(b.id)),
+              hitboxes: frame.hitboxes.filter((b) => !sel.has(b.id)),
+              jcboxes: frame.jcboxes.filter((b) => !sel.has(b.id)),
+              spawnPoints: frame.spawnPoints.filter((p) => !sel.has(p.id)),
+            }
+          }
+          let pushbox = s.animation.pushbox
+          if (pushbox.stand && sel.has(pushbox.stand.id)) {
+            pushbox = { ...pushbox }
+            delete pushbox.stand
+          }
+          return {
+            animation: { ...s.animation, elements, pushbox },
+            selectedIds: [],
+            selectedBoxId: null,
+            selectedBoxType: null,
+          }
+        }),
 
       // === Pushbox ===
       setPushbox: (type, box) =>
@@ -465,10 +588,21 @@ export const useEditorStore = create<EditorState>()(
           } else {
             pushbox[type] = { ...box, id: `push_${type}` }
           }
-          const removedSelectedPushbox = box === null && s.selectedBoxType === 'pushbox' && s.selectedBoxId === `push_${type}`
+          const pushId = `push_${type}`
+          const removing = box === null
+          const nextIds = removing ? s.selectedIds.filter((x) => x !== pushId) : s.selectedIds
+          let primaryId = s.selectedBoxId
+          let primaryType = s.selectedBoxType
+          if (removing && primaryId === pushId) {
+            const p = primaryFromIds({ ...s.animation, pushbox }, s.currentFrameIndex, nextIds, null, null)
+            primaryId = p.id
+            primaryType = p.type
+          }
           return {
             animation: { ...s.animation, pushbox },
-            ...(removedSelectedPushbox ? { selectedBoxId: null, selectedBoxType: null } : {}),
+            selectedIds: nextIds,
+            selectedBoxId: primaryId,
+            selectedBoxType: primaryType,
           }
         }),
 
@@ -520,7 +654,9 @@ export const useEditorStore = create<EditorState>()(
             ...frame,
             spawnPoints: frame.spawnPoints.filter((p) => p.id !== id),
           }
-          return { animation: { ...s.animation, elements } }
+          const nextIds = s.selectedIds.filter((x) => x !== id)
+          const p = primaryFromIds({ ...s.animation, elements }, s.currentFrameIndex, nextIds, s.selectedBoxId, s.selectedBoxType)
+          return { animation: { ...s.animation, elements }, selectedIds: nextIds, selectedBoxId: p.id, selectedBoxType: p.type }
         }),
 
       // === 精灵轴点 ===

@@ -132,19 +132,12 @@ export default function App() {
         return
       }
 
-      // 删除：有选中对象则删对象，否则删当前帧（与方向键"无选中则操作帧"一致）
+      // 删除：有选中对象则删全部选中，否则删当前帧（与方向键"无选中则操作帧"一致）
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const state = useEditorStore.getState()
-        const { selectedBoxType, selectedBoxId } = state
-        if (selectedBoxType && selectedBoxId) {
+        if (state.selectedIds.length > 0) {
           e.preventDefault()
-          if (selectedBoxType === 'hurtbox' || selectedBoxType === 'hitbox' || selectedBoxType === 'jcbox') {
-            state.removeBox(selectedBoxType, selectedBoxId)
-          } else if (selectedBoxType === 'pushbox') {
-            state.setPushbox('stand', null)
-          } else if (selectedBoxType === 'spawnpoint') {
-            state.removeSpawnPoint(selectedBoxId)
-          }
+          state.removeSelected()
         } else if (state.currentFrameIndex >= 0 && state.animation.elements.length > 1) {
           e.preventDefault()
           state.removeFrame(state.currentFrameIndex)
@@ -164,27 +157,10 @@ export default function App() {
           const frame = state.animation.elements[state.currentFrameIndex]
           if (!frame) return
           state.setOffset(state.currentFrameIndex, frame.offset.x - dx, frame.offset.y + dy)
-        } else if (state.tool === 'select' && state.selectedBoxType && state.selectedBoxId) {
+        } else if (state.tool === 'select' && state.selectedIds.length > 0) {
+          // 有选中对象（单/多）→ 整体微调
           e.preventDefault()
-          const { selectedBoxType: t, selectedBoxId: id } = state
-          if (t === 'hurtbox' || t === 'hitbox' || t === 'jcbox') {
-            const frame = state.animation.elements[state.currentFrameIndex]
-            if (!frame) return
-            const list = t === 'hurtbox' ? frame.hurtboxes : t === 'hitbox' ? frame.hitboxes : frame.jcboxes
-            const box = list.find((b) => b.id === id)
-            if (!box) return
-            state.updateBox(t, id, { x: box.x + dx, y: box.y + dy })
-          } else if (t === 'spawnpoint') {
-            const frame = state.animation.elements[state.currentFrameIndex]
-            if (!frame) return
-            const p = frame.spawnPoints.find((sp) => sp.id === id)
-            if (!p) return
-            state.updateSpawnPoint(id, { x: p.x + dx, y: p.y + dy })
-          } else if (t === 'pushbox') {
-            const pb = state.animation.pushbox.stand
-            if (!pb) return
-            state.updatePushbox('stand', { x: pb.x + dx, y: pb.y + dy })
-          }
+          state.moveSelected(dx, dy)
         } else if (e.key === 'ArrowLeft') {
           if (state.currentFrameIndex > 0) state.setFrame(state.currentFrameIndex - 1)
         } else if (e.key === 'ArrowRight') {

@@ -72,8 +72,7 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
   const animation = useEditorStore((s) => s.animation)
   const currentFrameIndex = useEditorStore((s) => s.currentFrameIndex)
   const tool = useEditorStore((s) => s.tool)
-  const selectedBoxId = useEditorStore((s) => s.selectedBoxId)
-  const selectedBoxType = useEditorStore((s) => s.selectedBoxType)
+  const selectedIds = useEditorStore((s) => s.selectedIds)
 
   const frame = animation.elements[currentFrameIndex]
 
@@ -84,8 +83,10 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
   const drawStart = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
   const [drawPreview, setDrawPreview] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
 
-  // 选中框的 ref
-  const selectedNodeRef = useRef<Konva.Rect | null>(null)
+  // 所有选中节点的 ref（key=id）：用于多选实时平移与 Transformer 绑定
+  const selectedNodesRef = useRef(new Map<string, Konva.Node>())
+  // 多选拖拽时各选中节点的起始屏幕位置
+  const multiDragStart = useRef(new Map<string, { x: number; y: number }>())
 
   // 图片对齐拖拽：记录起点与 Shift 锁定的主轴向（'x'=水平 / 'y'=垂直）
   const dragStartPos = useRef<{ x: number; y: number } | null>(null)
@@ -117,22 +118,68 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
     }
   }
 
+  // 注册/注销选中节点到 selectedNodesRef（ref 回调）
+  const registerNode = (id: string) => (node: Konva.Node | null) => {
+    if (node) selectedNodesRef.current.set(id, node)
+    else selectedNodesRef.current.delete(id)
+  }
+
+  // 选中对象拖拽：拖动任一选中项时，其它选中项实时同步位移；
+  // 松手按总位移调 moveSelected 一次性提交（单步撤销）。单选时等价于普通拖拽。
+  const multiDragHandlers = (id: string) => ({
+    onDragStart: (e: Konva.KonvaEventObject<DragEvent>) => {
+      shiftDragStart(e)
+      const map = new Map<string, { x: number; y: number }>()
+      selectedIds.forEach((sid) => {
+        const n = selectedNodesRef.current.get(sid)
+        if (n) map.set(sid, { x: n.x(), y: n.y() })
+      })
+      multiDragStart.current = map
+    },
+    onDragMove: (e: Konva.KonvaEventObject<DragEvent>) => {
+      shiftDragMove(e)
+      const start = multiDragStart.current.get(id)
+      if (!start) return
+      const dx = e.target.x() - start.x
+      const dy = e.target.y() - start.y
+      multiDragStart.current.forEach((pos, sid) => {
+        if (sid === id) return
+        const n = selectedNodesRef.current.get(sid)
+        if (n) {
+          n.x(pos.x + dx)
+          n.y(pos.y + dy)
+        }
+      })
+    },
+    onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => {
+      const start = multiDragStart.current.get(id)
+      if (start) {
+        const dx = Math.round((e.target.x() - start.x) / scale)
+        const dy = Math.round(-(e.target.y() - start.y) / scale)
+        if (dx !== 0 || dy !== 0) useEditorStore.getState().moveSelected(dx, dy)
+      }
+      multiDragStart.current.clear()
+    },
+  })
+
   useEffect(() => {
-    // 统一 Transformer：推挤框、受击框、攻击框在同一 Layer 中，
-    // 选中哪个就绑定哪个节点。
-    if (flipped) {
-      transformerRef.current?.nodes([])
-      transformerRef.current?.getLayer()?.batchDraw()
+    const tr = transformerRef.current
+    if (!tr) return
+    // 翻转预览只读 / 无选中 / 多选：不挂 Transformer（多选只支持整体平移，靠拖拽）
+    if (flipped || selectedIds.length !== 1) {
+      tr.nodes([])
+      tr.getLayer()?.batchDraw()
       return
     }
-    if (transformerRef.current && selectedNodeRef.current && selectedBoxId) {
-      transformerRef.current.nodes([selectedNodeRef.current])
-      transformerRef.current.getLayer()?.batchDraw()
-    } else if (transformerRef.current) {
-      transformerRef.current.nodes([])
-      transformerRef.current.getLayer()?.batchDraw()
+    // 单选：仅 Rect（受击/攻击/JC/推挤框）支持缩放；发射点不挂 Transformer
+    const node = selectedNodesRef.current.get(selectedIds[0])
+    if (node && node.getClassName() === 'Rect') {
+      tr.nodes([node])
+    } else {
+      tr.nodes([])
     }
-  }, [selectedBoxId, selectedBoxType, frame, animation.pushbox.stand, flipped])
+    tr.getLayer()?.batchDraw()
+  }, [selectedIds, frame, animation.pushbox.stand, flipped])
 
   type SelectableType = 'hurtbox' | 'hitbox' | 'jcbox' | 'pushbox' | 'spawnpoint'
   type SelectionCandidate = { type: SelectableType; id: string; priority: number }
@@ -303,7 +350,7 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
     const screenX = sx
     const screenY = sy - sh // Konva 的 y 是左上角
 
-    const isSelected = selectedBoxId === box.id && selectedBoxType === type
+    const isSelected = selectedIds.includes(box.id)
 
     return (
       <Rect
@@ -319,22 +366,16 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
         // 所有框都可被点击选中；拖拽只允许已选中对象，避免误移动。
         listening={tool === 'select' && !flipped}
         draggable={tool === 'select' && isSelected && !flipped}
-        onClick={(e) => { e.cancelBubble = true; useEditorStore.getState().selectBox(type, box.id) }}
-        ref={isSelected && !flipped ? (node) => { selectedNodeRef.current = node } : undefined}
-        onDragStart={shiftDragStart}
-        onDragMove={shiftDragMove}
-        onDragEnd={(e) => {
-          const newSx = e.target.x()
-          const newSy = e.target.y() + sh
-          const [gx, gy] = toGame(newSx, newSy)
-          useEditorStore.getState().updateBox(type, box.id, {
-            x: Math.round(gx),
-            y: Math.round(gy),
-          })
+        onClick={(e) => {
+          e.cancelBubble = true
+          const st = useEditorStore.getState()
+          if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey) st.toggleSelection(type, box.id)
+          else st.selectBox(type, box.id)
         }}
-        onTransformEnd={() => {
-          const node = selectedNodeRef.current
-          if (!node) return
+        ref={isSelected && !flipped ? registerNode(box.id) : undefined}
+        {...multiDragHandlers(box.id)}
+        onTransformEnd={(e) => {
+          const node = e.target as Konva.Rect
           // 变换后的实际屏幕尺寸与左上角
           const screenW = node.width() * node.scaleX()
           const screenH = node.height() * node.scaleY()
@@ -364,7 +405,7 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
   function renderSpawnPoint(point: { id: string; name: string; x: number; y: number }) {
     const px = flipped ? -point.x : point.x
     const [sx, sy] = toScreen(px, point.y)
-    const isSelected = selectedBoxId === point.id && selectedBoxType === 'spawnpoint'
+    const isSelected = selectedIds.includes(point.id)
     return (
       <Group key={point.id}>
         <Circle
@@ -376,16 +417,14 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
           strokeWidth={isSelected ? 2 : 1}
           listening={tool === 'select' && !flipped}
           draggable={tool === 'select' && isSelected && !flipped}
-          onClick={(e) => { e.cancelBubble = true; useEditorStore.getState().selectBox('spawnpoint', point.id) }}
-          onDragStart={shiftDragStart}
-          onDragMove={shiftDragMove}
-          onDragEnd={(e) => {
-            const [gx, gy] = toGame(e.target.x(), e.target.y())
-            useEditorStore.getState().updateSpawnPoint(point.id, {
-              x: Math.round(gx),
-              y: Math.round(gy),
-            })
+          onClick={(e) => {
+            e.cancelBubble = true
+            const st = useEditorStore.getState()
+            if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey) st.toggleSelection('spawnpoint', point.id)
+            else st.selectBox('spawnpoint', point.id)
           }}
+          ref={isSelected && !flipped ? registerNode(point.id) : undefined}
+          {...multiDragHandlers(point.id)}
         />
         <Text
           x={sx + 10}
@@ -715,7 +754,7 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
             const [sx, sy] = toScreen(pbX, pb.y)
             const sw = toScreenSize(pb.w)
             const sh = toScreenSize(pb.h)
-            const isSelected = selectedBoxId === pb.id && selectedBoxType === 'pushbox'
+            const isSelected = selectedIds.includes(pb.id)
             return (
               <Rect
                 x={sx}
@@ -728,20 +767,16 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
                 dash={isSelected ? [] : [6, 3]}
                 listening={tool === 'select' && !flipped}
                 draggable={tool === 'select' && isSelected && !flipped}
-                onClick={(e) => { e.cancelBubble = true; useEditorStore.getState().selectBox('pushbox', pb.id) }}
-                ref={isSelected && !flipped ? (node) => { selectedNodeRef.current = node } : undefined}
-                onDragStart={shiftDragStart}
-                onDragMove={shiftDragMove}
-                onDragEnd={(e) => {
-                  const [gx, gy] = toGame(e.target.x(), e.target.y() + sh)
-                  useEditorStore.getState().updatePushbox('stand', {
-                    x: Math.round(gx),
-                    y: Math.round(gy),
-                  })
+                onClick={(e) => {
+                  e.cancelBubble = true
+                  const st = useEditorStore.getState()
+                  if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey) st.toggleSelection('pushbox', pb.id)
+                  else st.selectBox('pushbox', pb.id)
                 }}
-                onTransformEnd={() => {
-                  const node = selectedNodeRef.current
-                  if (!node) return
+                ref={isSelected && !flipped ? registerNode(pb.id) : undefined}
+                {...multiDragHandlers(pb.id)}
+                onTransformEnd={(e) => {
+                  const node = e.target as Konva.Rect
                   const screenW = node.width() * node.scaleX()
                   const screenH = node.height() * node.scaleY()
                   const screenLeft = node.x()

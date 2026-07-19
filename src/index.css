@@ -116,6 +116,9 @@
 @layer base {
   * {
     border-color: var(--border);
+    /* 编辑器整体禁用文本选中，避免 Shift 多选/拖拽时误选界面文字 */
+    -webkit-user-select: none;
+    user-select: none;
   }
   html,
   body,
@@ -129,5 +132,10 @@
     color: var(--foreground);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     font-size: 13px;
+  }
+  /* 输入框、文本域、可编辑区域保留文本选中 */
+  input, textarea, [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
   }
 }

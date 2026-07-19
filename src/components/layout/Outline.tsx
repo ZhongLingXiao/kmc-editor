@@ -1,71 +1,95 @@
 import { useState } from 'react'
 import { useEditorStore } from '../../store/editorStore'
-import { COLORS, ShowLayers } from '../../types/animation'
+import { COLORS } from '../../types/animation'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
-import {
-  Collapsible,
-  CollapsibleTrigger,
-  CollapsibleContent,
-} from '@/components/ui/collapsible'
 import {
   ContextMenu,
   ContextMenuTrigger,
   ContextMenuContent,
   ContextMenuItem,
 } from '@/components/ui/context-menu'
-import { ChevronRight, Eye, EyeOff, Trash2 } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
-type BoxType = 'hurtbox' | 'hitbox' | 'jcbox'
-type GroupKey = BoxType | 'pushbox' | 'spawnpoint'
+type ObjType = 'hurtbox' | 'hitbox' | 'jcbox' | 'pushbox' | 'spawnpoint'
 
-const GROUPS: { key: GroupKey; label: string; color: string; border: string }[] = [
-  { key: 'hurtbox', label: '受击框', color: COLORS.hurtbox, border: COLORS.hurtboxBorder },
-  { key: 'hitbox', label: '攻击框', color: COLORS.hitbox, border: COLORS.hitboxBorder },
-  { key: 'jcbox', label: 'JC框', color: COLORS.jcbox, border: COLORS.jcboxBorder },
-  { key: 'pushbox', label: '推挤框', color: COLORS.pushbox, border: COLORS.pushboxBorder },
-  { key: 'spawnpoint', label: '发射点', color: COLORS.spawnpoint, border: COLORS.spawnpoint },
-]
+interface OutlineItem {
+  id: string
+  type: ObjType
+  label: string
+  color: string
+  abbrev: string
+}
+
+const TYPE_META: Record<ObjType, { color: string; abbrev: string }> = {
+  hurtbox: { color: COLORS.hurtboxBorder, abbrev: 'Hurt' },
+  hitbox: { color: COLORS.hitboxBorder, abbrev: 'Hit' },
+  jcbox: { color: COLORS.jcboxBorder, abbrev: 'JC' },
+  pushbox: { color: COLORS.pushboxBorder, abbrev: 'Push' },
+  spawnpoint: { color: COLORS.spawnpoint, abbrev: 'Spawn' },
+}
 
 export default function Outline() {
   const animation = useEditorStore((s) => s.animation)
   // 播放时冻结为 -1：大纲不跟随帧变化刷新，避免播放性能损耗
   const currentFrameIndex = useEditorStore((s) => (s.isPlaying ? -1 : s.currentFrameIndex))
   const isPlaying = useEditorStore((s) => s.isPlaying)
-  const showLayers = useEditorStore((s) => s.showLayers)
-  const toggleLayer = useEditorStore((s) => s.toggleLayer)
-  const selectedBoxId = useEditorStore((s) => s.selectedBoxId)
-  const selectedBoxType = useEditorStore((s) => s.selectedBoxType)
-  const removeBox = useEditorStore((s) => s.removeBox)
-  const removeSpawnPoint = useEditorStore((s) => s.removeSpawnPoint)
-  const setPushbox = useEditorStore((s) => s.setPushbox)
+  const selectedIds = useEditorStore((s) => s.selectedIds)
+  const selectBox = useEditorStore((s) => s.selectBox)
+  const toggleSelection = useEditorStore((s) => s.toggleSelection)
+  const selectRange = useEditorStore((s) => s.selectRange)
+  const clearSelection = useEditorStore((s) => s.clearSelection)
+  const removeSelected = useEditorStore((s) => s.removeSelected)
 
   const frame = currentFrameIndex >= 0 ? animation.elements[currentFrameIndex] : null
-  const [open, setOpen] = useState<Record<string, boolean>>(
-    () => Object.fromEntries(GROUPS.map((g) => [g.key, true]))
-  )
+  // shift 范围选的锚点（上次单击/Ctrl 单击的项）
+  const [anchorId, setAnchorId] = useState<string | null>(null)
 
-  const getItems = (key: GroupKey): { id: string; label: string; meta: string }[] => {
-    if (!frame) return []
-    if (key === 'hurtbox') return frame.hurtboxes.map((b, i) => ({ id: b.id, label: `受击框 ${i + 1}`, meta: `X:${b.x} Y:${b.y} W:${b.w} H:${b.h}` }))
-    if (key === 'hitbox') return frame.hitboxes.map((b, i) => ({ id: b.id, label: `攻击框 ${i + 1}`, meta: `X:${b.x} Y:${b.y} W:${b.w} H:${b.h}` }))
-    if (key === 'jcbox') return frame.jcboxes.map((b, i) => ({ id: b.id, label: `JC框 ${i + 1}`, meta: `X:${b.x} Y:${b.y} W:${b.w} H:${b.h}` }))
-    if (key === 'pushbox') return animation.pushbox.stand ? [{ id: animation.pushbox.stand.id, label: '推挤框（站立）', meta: `X:${animation.pushbox.stand.x} Y:${animation.pushbox.stand.y} W:${animation.pushbox.stand.w} H:${animation.pushbox.stand.h}` }] : []
-    return frame.spawnPoints.map((p) => ({ id: p.id, label: p.name, meta: `X:${p.x} Y:${p.y}` }))
+  // 构建扁平、按类型固定排序的对象列表：受击→攻击→JC→推挤→发射点
+  const items: OutlineItem[] = []
+  if (frame) {
+    const push = (id: string, type: ObjType, label: string) =>
+      items.push({ id, type, label, color: TYPE_META[type].color, abbrev: TYPE_META[type].abbrev })
+    frame.hurtboxes.forEach((b, i) => push(b.id, 'hurtbox', `受击框 ${i + 1}`))
+    frame.hitboxes.forEach((b, i) => push(b.id, 'hitbox', `攻击框 ${i + 1}`))
+    frame.jcboxes.forEach((b, i) => push(b.id, 'jcbox', `JC框 ${i + 1}`))
+    if (animation.pushbox.stand) push(animation.pushbox.stand.id, 'pushbox', '推挤框（站立）')
+    frame.spawnPoints.forEach((p) => push(p.id, 'spawnpoint', p.name))
   }
 
-  const handleDelete = (key: GroupKey, id: string) => {
-    if (key === 'hurtbox' || key === 'hitbox' || key === 'jcbox') removeBox(key, id)
-    else if (key === 'pushbox') setPushbox('stand', null)
-    else removeSpawnPoint(id)
+  const handleClick = (item: OutlineItem, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (e.ctrlKey || e.metaKey) {
+      toggleSelection(item.type, item.id)
+      setAnchorId(item.id)
+    } else if (e.shiftKey && anchorId) {
+      const anchorIdx = items.findIndex((it) => it.id === anchorId)
+      const clickIdx = items.findIndex((it) => it.id === item.id)
+      if (anchorIdx >= 0 && clickIdx >= 0) {
+        const [from, to] = anchorIdx <= clickIdx ? [anchorIdx, clickIdx] : [clickIdx, anchorIdx]
+        const range = items.slice(from, to + 1)
+        selectRange(range.map((it) => it.id), item.id, item.type)
+      } else {
+        selectBox(item.type, item.id)
+        setAnchorId(item.id)
+      }
+    } else {
+      selectBox(item.type, item.id)
+      setAnchorId(item.id)
+    }
   }
 
-  const totalObjects = frame
-    ? frame.hurtboxes.length + frame.hitboxes.length + frame.jcboxes.length + frame.spawnPoints.length + (animation.pushbox.stand ? 1 : 0)
-    : 0
+  // 右键未选中项：先单选它；已属于多选则保留选区（便于对整组操作）
+  const handleContextMenu = (item: OutlineItem) => {
+    if (!selectedIds.includes(item.id)) {
+      selectBox(item.type, item.id)
+      setAnchorId(item.id)
+    }
+  }
+
+  const totalObjects = items.length
 
   return (
     <div className="flex min-h-0 flex-1 flex-col border-t">
@@ -75,7 +99,8 @@ export default function Outline() {
       </div>
       <Separator />
       <ScrollArea className="min-h-0 flex-1">
-        <div className="p-1.5">
+        {/* 点空白处清空选区 */}
+        <div className="p-1" onClick={() => clearSelection()}>
           {!frame && (
             <div className="px-3 py-8 text-center text-xs text-muted-foreground">
               {isPlaying ? '播放中…' : '无当前帧'}
@@ -84,69 +109,40 @@ export default function Outline() {
           {frame && totalObjects === 0 && (
             <div className="px-3 py-8 text-center text-xs text-muted-foreground">当前帧无对象</div>
           )}
-          {GROUPS.map((g) => {
-            const items = getItems(g.key)
-            if (items.length === 0) return null
-            const layerKey = g.key as keyof ShowLayers
-            const visible = showLayers[layerKey]
-            const isOpen = open[g.key]
+          {items.map((it, i) => {
+            const selected = selectedIds.includes(it.id)
+            // 类型分界：与上一项类型不同时，前补淡分隔线
+            const divider = i > 0 && items[i - 1].type !== it.type
             return (
-              <Collapsible key={g.key} open={isOpen} onOpenChange={(v) => setOpen((p) => ({ ...p, [g.key]: v }))}>
-                <div className="flex items-center gap-1 rounded-md px-1 py-1">
-                  <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium">
-                    <ChevronRight className={cn('size-3.5 transition-transform', isOpen && 'rotate-90')} />
-                    {g.label}
-                  </CollapsibleTrigger>
-                  <Badge variant="outline" className="h-4 px-1 text-[10px] font-normal">{items.length}</Badge>
-                  <div className="flex-1" />
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => toggleLayer(layerKey)}
-                        className="rounded p-1 text-muted-foreground hover:bg-accent"
-                      >
-                        {visible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>{visible ? '隐藏' : '显示'}</TooltipContent>
-                  </Tooltip>
-                </div>
-                <CollapsibleContent>
-                  <div className="ml-2 border-l pl-1">
-                    {items.map((it) => {
-                      const isSelected = selectedBoxId === it.id && selectedBoxType === g.key
-                      return (
-                        <ContextMenu key={it.id}>
-                          <ContextMenuTrigger asChild>
-                            <div
-                              onClick={() => useEditorStore.getState().selectBox(g.key, it.id)}
-                              className={cn(
-                                'flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs hover:bg-accent',
-                                isSelected && 'bg-accent'
-                              )}
-                              style={{ borderLeft: `3px solid ${g.border}` }}
-                            >
-                              <span className="size-2 shrink-0 rounded-sm" style={{ background: g.border }} />
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate">{it.label}</div>
-                                <div className="truncate text-[10px] text-muted-foreground">{it.meta}</div>
-                              </div>
-                            </div>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent>
-                            <ContextMenuItem
-                              onClick={() => handleDelete(g.key, it.id)}
-                              className="text-destructive focus:text-destructive"
-                            >
-                              <Trash2 /> 删除
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      )
-                    })}
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
+              <div key={it.id}>
+                {divider && <div className="my-0.5 h-px bg-border/50" />}
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    <div
+                      onClick={(e) => handleClick(it, e)}
+                      onContextMenu={() => handleContextMenu(it)}
+                      onMouseDown={(e) => { if (e.shiftKey || e.ctrlKey || e.metaKey) e.preventDefault() }}
+                      className={cn(
+                        'relative flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs',
+                        selected ? 'bg-accent' : 'hover:bg-accent/60'
+                      )}
+                    >
+                      {selected && <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-foreground" />}
+                      <span className="size-2 shrink-0 rounded-full" style={{ background: it.color }} />
+                      <span className={cn('min-w-0 flex-1 truncate', selected && 'font-medium')}>{it.label}</span>
+                      <span className="shrink-0 text-[10px] text-muted-foreground/70">{it.abbrev}</span>
+                    </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem
+                      onClick={() => removeSelected()}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Trash2 /> 删除
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
+              </div>
             )
           })}
         </div>
