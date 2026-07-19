@@ -66,6 +66,7 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
   const originX = useEditorStore((s) => s.originX)
   const originY = useEditorStore((s) => s.originY)
   const scale = useEditorStore((s) => s.scale)
+  const gridSizeSetting = useEditorStore((s) => s.gridSize)
   const showLayers = useEditorStore((s) => s.showLayers)
   const onionSkin = useEditorStore((s) => s.onionSkin)
   const animation = useEditorStore((s) => s.animation)
@@ -644,7 +645,7 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
   const gridLines = useMemo(() => {
     if (!showLayers.grid) return null
     const lines: React.ReactNode[] = []
-    const gridSize = 20 * scale
+    const gridSize = gridSizeSetting * scale
     // 垂直线
     for (let x = originX % gridSize; x < canvasWidth; x += gridSize) {
       lines.push(
@@ -658,7 +659,7 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
       )
     }
     return lines
-  }, [showLayers.grid, originX, originY, canvasWidth, canvasHeight, scale])
+  }, [showLayers.grid, originX, originY, canvasWidth, canvasHeight, scale, gridSizeSetting])
 
   if (!frame) {
     return (

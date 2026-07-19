@@ -2,7 +2,6 @@ import { useEditorStore } from '../../store/editorStore'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { Slider } from '@/components/ui/slider'
 import { Separator } from '@/components/ui/separator'
 import {
   Accordion,
@@ -29,24 +28,9 @@ function StatRow({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
-const PREV_COLORS = [
-  { label: '蓝', val: '#0096ff' },
-  { label: '青', val: '#00ffcc' },
-  { label: '绿', val: '#22ff22' },
-  { label: '紫', val: '#aa00ff' },
-]
-const NEXT_COLORS = [
-  { label: '红', val: '#ff5050' },
-  { label: '橙', val: '#ff8800' },
-  { label: '黄', val: '#ffdd00' },
-  { label: '粉', val: '#ff00aa' },
-]
-
 export default function SettingsPanel() {
   const animation = useEditorStore((s) => s.animation)
   const updateAnimationMeta = useEditorStore((s) => s.updateAnimationMeta)
-  const onionSkin = useEditorStore((s) => s.onionSkin)
-  const updateOnionSkin = useEditorStore((s) => s.updateOnionSkin)
   const settingsOpen = useEditorStore((s) => s.settingsOpen)
   const setSettingsOpen = useEditorStore((s) => s.setSettingsOpen)
 
@@ -73,89 +57,6 @@ export default function SettingsPanel() {
             </div>
           </AccordionContent>
         </AccordionItem>
-
-        <AccordionItem value="onion">
-          <AccordionTrigger className="text-xs">洋葱皮</AccordionTrigger>
-          <AccordionContent className="flex flex-col gap-3 px-1 pb-3">
-            <Row label="前帧">
-              <Input
-                type="number"
-                min={0}
-                max={5}
-                value={onionSkin.prevFrames}
-                onChange={(e) => updateOnionSkin({ prevFrames: Math.max(0, Math.min(5, parseInt(e.target.value) || 0)) })}
-                className="h-7"
-              />
-            </Row>
-            <Row label="后帧">
-              <Input
-                type="number"
-                min={0}
-                max={5}
-                value={onionSkin.nextFrames}
-                onChange={(e) => updateOnionSkin({ nextFrames: Math.max(0, Math.min(5, parseInt(e.target.value) || 0)) })}
-                className="h-7"
-              />
-            </Row>
-            <Row label="透明度">
-              <div className="flex items-center gap-2">
-                <Slider className="w-24 shrink-0" value={[onionSkin.baseOpacity]} min={0.1} max={1} step={0.05} onValueChange={([v]) => updateOnionSkin({ baseOpacity: v })} />
-                <span className="w-9 shrink-0 text-right text-xs text-muted-foreground">{Math.round(onionSkin.baseOpacity * 100)}%</span>
-              </div>
-            </Row>
-            <Row label="衰减率">
-              <div className="flex items-center gap-2">
-                <Slider className="w-24 shrink-0" value={[onionSkin.decayRate]} min={0.2} max={1} step={0.05} onValueChange={([v]) => updateOnionSkin({ decayRate: v })} />
-                <span className="w-9 shrink-0 text-right text-xs text-muted-foreground">{Math.round(onionSkin.decayRate * 100)}%</span>
-              </div>
-            </Row>
-            <Row label="前帧色">
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="color"
-                  value={onionSkin.prevColor.startsWith('rgba') ? '#0096ff' : onionSkin.prevColor}
-                  onChange={(e) => updateOnionSkin({ prevColor: e.target.value })}
-                  className="size-6 cursor-pointer rounded border bg-transparent"
-                />
-                {PREV_COLORS.map((c) => (
-                  <button
-                    key={c.val}
-                    onClick={() => updateOnionSkin({ prevColor: c.val })}
-                    className="size-5 rounded border"
-                    style={{ background: c.val, borderColor: onionSkin.prevColor === c.val ? '#000' : 'var(--border)' }}
-                    title={c.label}
-                  />
-                ))}
-              </div>
-            </Row>
-            <Row label="后帧色">
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="color"
-                  value={onionSkin.nextColor.startsWith('rgba') ? '#ff5050' : onionSkin.nextColor}
-                  onChange={(e) => updateOnionSkin({ nextColor: e.target.value })}
-                  className="size-6 cursor-pointer rounded border bg-transparent"
-                />
-                {NEXT_COLORS.map((c) => (
-                  <button
-                    key={c.val}
-                    onClick={() => updateOnionSkin({ nextColor: c.val })}
-                    className="size-5 rounded border"
-                    style={{ background: c.val, borderColor: onionSkin.nextColor === c.val ? '#000' : 'var(--border)' }}
-                    title={c.label}
-                  />
-                ))}
-              </div>
-            </Row>
-            <Row label="精灵图">
-              <Switch checked={onionSkin.showSprite} onCheckedChange={(v) => updateOnionSkin({ showSprite: v })} />
-            </Row>
-            <Row label="碰撞框">
-              <Switch checked={onionSkin.showBoxes} onCheckedChange={(v) => updateOnionSkin({ showBoxes: v })} />
-            </Row>
-          </AccordionContent>
-        </AccordionItem>
-
       </Accordion>
     </div>
   )

@@ -21,7 +21,12 @@ export default function ShortcutsOverlay() {
   const [open, setOpen] = useState(false)
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="absolute right-2 top-2 z-20">
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      onContextMenu={(e) => e.preventDefault()}
+      className="absolute right-2 top-2 z-20"
+    >
       <Tooltip>
         <TooltipTrigger asChild>
           <Button

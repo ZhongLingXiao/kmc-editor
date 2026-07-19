@@ -94,6 +94,7 @@ interface EditorState {
   scale: number
   panX: number // 画布平移偏移 X
   panY: number // 画布平移偏移 Y
+  gridSize: number // 网格单元尺寸（逻辑像素，编辑器态，不进撤销历史）
 
   // === Actions: 动画管理 ===
   setAnimation: (data: AnimationData) => void
@@ -132,6 +133,7 @@ interface EditorState {
   // === Actions: 工具/图层 ===
   setTool: (tool: Tool) => void
   toggleLayer: (layer: keyof ShowLayers) => void
+  setLayers: (keys: (keyof ShowLayers)[], value: boolean) => void
   updateOnionSkin: (settings: Partial<OnionSkinSettings>) => void
   syncMetadata: () => void
   setSettingsOpen: (open: string[]) => void
@@ -151,6 +153,7 @@ interface EditorState {
   setScale: (scale: number) => void
   setPan: (x: number, y: number) => void
   resetView: () => void
+  setGridSize: (size: number) => void
 }
 
 export const useEditorStore = create<EditorState>()(
@@ -185,7 +188,7 @@ export const useEditorStore = create<EditorState>()(
         showBoxes: true,
       },
 
-      settingsOpen: ['anim', 'onion', 'display'],
+      settingsOpen: ['anim'],
       frameListMode: 'detail',
       newFrameInheritBoxes: true,
       newFrameInheritOffset: true,
@@ -203,6 +206,7 @@ export const useEditorStore = create<EditorState>()(
       scale: 1,
       panX: 0,
       panY: 0,
+      gridSize: 20,
 
       // === 动画管理 ===
       setAnimation: (data) =>
@@ -561,6 +565,12 @@ export const useEditorStore = create<EditorState>()(
         set((s) => ({
           showLayers: { ...s.showLayers, [layer]: !s.showLayers[layer] },
         })),
+      setLayers: (keys, value) =>
+        set((s) => {
+          const showLayers = { ...s.showLayers }
+          for (const k of keys) showLayers[k] = value
+          return { showLayers }
+        }),
 
       updateOnionSkin: (settings) =>
         set((s) => ({
@@ -614,6 +624,7 @@ export const useEditorStore = create<EditorState>()(
           originX: s.canvasWidth / 2,
           originY: s.canvasHeight * 0.75,
         })),
+      setGridSize: (size) => set({ gridSize: Math.max(2, Math.round(size)) }),
     }),
     {
       // 撤销/重做配置：只追踪动画数据变化
