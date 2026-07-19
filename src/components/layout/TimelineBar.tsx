@@ -247,7 +247,7 @@ export default function TimelineBar() {
                     key={i}
                     className={cn(
                       'absolute flex h-full cursor-pointer flex-col justify-center overflow-hidden px-1 select-none bg-background hover:bg-accent',
-                      i === currentFrameIndex && 'bg-primary/15'
+                      i === currentFrameIndex && 'bg-accent'
                     )}
                     style={{ width, minWidth: 1, left }}
                     onClick={() => setFrame(i)}
