@@ -35,7 +35,7 @@ export default function ShortcutsOverlay() {
         </TooltipTrigger>
         <TooltipContent>{open ? '收起' : '快捷键'}</TooltipContent>
       </Tooltip>
-      <CollapsibleContent className="mt-1">
+      <CollapsibleContent className="absolute right-0 top-full mt-1">
         <div className="w-[210px] rounded-md border bg-card/80 p-2 shadow backdrop-blur-sm">
           <span className="mb-1.5 block text-xs font-semibold">快捷键</span>
           <div className="flex flex-col gap-1">
