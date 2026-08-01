@@ -1,4 +1,5 @@
 import { useEditorStore } from '../../store/editorStore'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -63,6 +64,7 @@ function StatRow({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 export default function Inspector() {
+  const { t } = useTranslation()
   const animation = useEditorStore((s) => s.animation)
   const currentFrameIndex = useEditorStore((s) => s.currentFrameIndex)
   const selectedBoxId = useEditorStore((s) => s.selectedBoxId)
@@ -96,14 +98,14 @@ export default function Inspector() {
         })()
       : null
 
-  let title = '检视器'
+  let title = t('inspector.title')
   if (selected?.data) {
-    const base = selected.type === 'hurtbox' ? '受击框' : selected.type === 'hitbox' ? '攻击框' : selected.type === 'jcbox' ? 'JC框' : selected.type === 'pushbox' ? '推挤框（站立）' : '发射点'
-    title = multi ? `${base} (${selectedIds.length} 选)` : base
+    const base = selected.type === 'hurtbox' ? t('tool.hurtbox') : selected.type === 'hitbox' ? t('tool.hitbox') : selected.type === 'jcbox' ? t('tool.jcbox') : selected.type === 'pushbox' ? t('inspector.pushboxStand') : t('tool.spawnpoint')
+    title = multi ? t('inspector.multi', { base, count: selectedIds.length }) : base
   } else if (frame && crossFrame) {
-    title = `多帧 (${operatingFrames})`
+    title = t('inspector.multiFrame', { count: operatingFrames })
   } else if (frame) {
-    title = `帧 ${currentFrameIndex}`
+    title = t('inspector.frameN', { index: currentFrameIndex })
   }
 
   return (
@@ -117,25 +119,25 @@ export default function Inspector() {
         {selected?.data && (selected.type === 'hurtbox' || selected.type === 'hitbox' || selected.type === 'jcbox' || selected.type === 'pushbox') && (
           <>
             {(multi || crossFrame) && (
-              <p className="text-[11px] text-muted-foreground">作用于 {selectedIds.length} 个对象 / {operatingFrames} 帧</p>
+              <p className="text-[11px] text-muted-foreground">{t('inspector.affects', { obj: selectedIds.length, frames: operatingFrames })}</p>
             )}
             {selected.type === 'pushbox' && (
-              <p className="text-[11px] leading-relaxed text-muted-foreground">推挤框是角色物理占位，坐标相对 Root (0,0)。</p>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">{t('inspector.pushboxHint')}</p>
             )}
             <Row label="X"><NumInput value={selected.data.x} onChange={(v) => setSelectedField('x', v)} /></Row>
             <Row label="Y"><NumInput value={selected.data.y} onChange={(v) => setSelectedField('y', v)} /></Row>
-            <Row label="宽"><NumInput value={selected.data.w} onChange={(v) => setSelectedField('w', v)} /></Row>
-            <Row label="高"><NumInput value={selected.data.h} onChange={(v) => setSelectedField('h', v)} /></Row>
+            <Row label="W"><NumInput value={selected.data.w} onChange={(v) => setSelectedField('w', v)} /></Row>
+            <Row label="H"><NumInput value={selected.data.h} onChange={(v) => setSelectedField('h', v)} /></Row>
           </>
         )}
 
         {selected?.type === 'spawnpoint' && selected.data && (
           <>
             {(multi || crossFrame) && (
-              <p className="text-[11px] text-muted-foreground">作用于 {selectedIds.length} 个对象 / {operatingFrames} 帧</p>
+              <p className="text-[11px] text-muted-foreground">{t('inspector.affects', { obj: selectedIds.length, frames: operatingFrames })}</p>
             )}
             {selectedIds.length === 1 && (
-              <Row label="名称">
+              <Row label={t('inspector.name')}>
                 <Input value={selected.data.name} onChange={(e) => renameSelectedSpawnPoint(e.target.value)} className="h-7" />
               </Row>
             )}
@@ -147,34 +149,34 @@ export default function Inspector() {
         {/* 无对象选中 + 多帧选中：帧批量 */}
         {frame && !selected?.data && crossFrame && (
           <>
-            <p className="text-xs text-muted-foreground">已选 {operatingFrames} 帧</p>
-            <Row label="时长">
+            <p className="text-xs text-muted-foreground">{t('inspector.selectedN', { count: operatingFrames })}</p>
+            <Row label={t('inspector.duration')}>
               <div className="flex items-center gap-2">
                 <NumInput value={frame.duration} onChange={(v) => setSelectedFramesDuration(v)} />
-                <span className="text-xs text-muted-foreground">Tick</span>
+                <span className="text-xs text-muted-foreground">{t('inspector.tick')}</span>
               </div>
             </Row>
-            <p className="text-[11px] text-muted-foreground">时长统一设到所有选中帧。</p>
+            <p className="text-[11px] text-muted-foreground">{t('inspector.durationBatchHint')}</p>
             {frame.sprite.w > 0 ? (
               <>
-                <GroupLabel hint="图片对齐到角色根点 Root(0,0) 的像素坐标；统一设到所有选中帧">轴点</GroupLabel>
+                <GroupLabel hint={t('inspector.pivotHint')}>{t('inspector.pivot')}</GroupLabel>
                 <Row label="X"><NumInput value={frame.offset.x} onChange={(v) => setSelectedFramesOffset(v, frame.offset.y)} /></Row>
                 <Row label="Y"><NumInput value={frame.offset.y} onChange={(v) => setSelectedFramesOffset(frame.offset.x, v)} /></Row>
-                <GroupLabel hint="按每帧各自精灵图尺寸计算：脚底中心=站立着地；图片中心=几何中心">快速设置</GroupLabel>
+                <GroupLabel hint={t('inspector.quickSetHint')}>{t('inspector.quickSet')}</GroupLabel>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" className="flex-1" onClick={() => applyOffsetPresetToSelectedFrames('foot')}>
-                    <Footprints /> 脚底中心
+                    <Footprints /> {t('inspector.footCenter')}
                   </Button>
                   <Button variant="outline" size="sm" className="flex-1" onClick={() => applyOffsetPresetToSelectedFrames('center')}>
-                    <AlignCenter /> 图片中心
+                    <AlignCenter /> {t('inspector.imageCenter')}
                   </Button>
                 </div>
               </>
             ) : (
-              <p className="text-xs text-muted-foreground">当前帧未载入精灵图，轴点不可批量设置。</p>
+              <p className="text-xs text-muted-foreground">{t('inspector.noSpriteBatch')}</p>
             )}
             <Button variant="outline" size="sm" className="text-destructive" onClick={() => removeSelectedFrames()} disabled={animation.elements.length <= 1}>
-              <Trash2 /> 批量删除帧
+              <Trash2 /> {t('inspector.batchDelete')}
             </Button>
           </>
         )}
@@ -182,40 +184,40 @@ export default function Inspector() {
         {/* 无对象选中 + 单帧：帧属性 */}
         {frame && !selected?.data && !crossFrame && (
           <>
-            <Row label="时长">
+            <Row label={t('inspector.duration')}>
               <div className="flex items-center gap-2">
                 <NumInput value={frame.duration} onChange={(v) => updateFrame(currentFrameIndex, { duration: v })} />
-                <span className="text-xs text-muted-foreground">Tick</span>
+                <span className="text-xs text-muted-foreground">{t('inspector.tick')}</span>
               </div>
             </Row>
             {frame.sprite.w > 0 ? (
               <>
-                <GroupLabel hint="图片对齐到角色根点 Root(0,0) 的像素坐标">轴点</GroupLabel>
+                <GroupLabel hint={t('inspector.pivotHintSingle')}>{t('inspector.pivot')}</GroupLabel>
                 <Row label="X"><NumInput value={frame.offset.x} onChange={(v) => setOffset(currentFrameIndex, v, frame.offset.y)} /></Row>
                 <Row label="Y"><NumInput value={frame.offset.y} onChange={(v) => setOffset(currentFrameIndex, frame.offset.x, v)} /></Row>
-                <GroupLabel hint="脚底中心=站立着地；图片中心=几何中心">快速设置</GroupLabel>
+                <GroupLabel hint={t('inspector.quickSetHintSingle')}>{t('inspector.quickSet')}</GroupLabel>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" className="flex-1" onClick={() => setOffset(currentFrameIndex, Math.round(frame.sprite.w / 2), frame.sprite.h)}>
-                    <Footprints /> 脚底中心
+                    <Footprints /> {t('inspector.footCenter')}
                   </Button>
                   <Button variant="outline" size="sm" className="flex-1" onClick={() => setOffset(currentFrameIndex, Math.round(frame.sprite.w / 2), Math.round(frame.sprite.h / 2))}>
-                    <AlignCenter /> 图片中心
+                    <AlignCenter /> {t('inspector.imageCenter')}
                   </Button>
                 </div>
                 <Separator className="my-1" />
-                <span className="text-xs font-medium text-muted-foreground">信息</span>
+                <span className="text-xs font-medium text-muted-foreground">{t('inspector.info')}</span>
                 <div className="flex flex-col gap-1">
-                  <StatRow label="路径" value={frame.sprite.src || '—'} />
-                  <StatRow label="尺寸" value={`${frame.sprite.w}×${frame.sprite.h}`} />
+                  <StatRow label={t('inspector.path')} value={frame.sprite.src || '—'} />
+                  <StatRow label={t('inspector.size')} value={`${frame.sprite.w}×${frame.sprite.h}`} />
                 </div>
               </>
             ) : (
-              <p className="text-xs text-muted-foreground">尚未载入精灵图。</p>
+              <p className="text-xs text-muted-foreground">{t('inspector.noSprite')}</p>
             )}
           </>
         )}
 
-        {!frame && <p className="text-xs text-muted-foreground">无当前帧</p>}
+        {!frame && <p className="text-xs text-muted-foreground">{t('inspector.noCurrentFrame')}</p>}
       </div>
     </div>
   )

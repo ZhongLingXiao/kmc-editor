@@ -1,4 +1,5 @@
 import { useEffect, useState, type RefObject } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Separator } from '@/components/ui/separator'
@@ -16,26 +17,26 @@ import { cn } from '@/lib/utils'
 type Facing = 'right' | 'left'
 
 const PREV_COLORS = [
-  { label: '蓝', val: '#0096ff' },
-  { label: '青', val: '#00ffcc' },
-  { label: '绿', val: '#22ff22' },
-  { label: '紫', val: '#aa00ff' },
+  { labelKey: 'preview.colorBlue', val: '#0096ff' },
+  { labelKey: 'preview.colorCyan', val: '#00ffcc' },
+  { labelKey: 'preview.colorGreen', val: '#22ff22' },
+  { labelKey: 'preview.colorPurple', val: '#aa00ff' },
 ]
 const NEXT_COLORS = [
-  { label: '红', val: '#ff5050' },
-  { label: '橙', val: '#ff8800' },
-  { label: '黄', val: '#ffdd00' },
-  { label: '粉', val: '#ff00aa' },
+  { labelKey: 'preview.colorRed', val: '#ff5050' },
+  { labelKey: 'preview.colorOrange', val: '#ff8800' },
+  { labelKey: 'preview.colorYellow', val: '#ffdd00' },
+  { labelKey: 'preview.colorPink', val: '#ff00aa' },
 ]
 
 // 碰撞框/发射点类型：用于整体开关与右键逐类选择
 const BOX_KEYS: (keyof ShowLayers)[] = ['hurtbox', 'hitbox', 'jcbox', 'pushbox', 'spawnpoint']
-const BOX_GROUPS: { key: keyof ShowLayers; label: string; color: string }[] = [
-  { key: 'hurtbox', label: '受击框', color: COLORS.hurtboxBorder },
-  { key: 'hitbox', label: '攻击框', color: COLORS.hitboxBorder },
-  { key: 'jcbox', label: 'JC框', color: COLORS.jcboxBorder },
-  { key: 'pushbox', label: '推挤框', color: COLORS.pushboxBorder },
-  { key: 'spawnpoint', label: '发射点', color: COLORS.spawnpoint },
+const BOX_GROUPS: { key: keyof ShowLayers; labelKey: string; color: string }[] = [
+  { key: 'hurtbox', labelKey: 'tool.hurtbox', color: COLORS.hurtboxBorder },
+  { key: 'hitbox', labelKey: 'tool.hitbox', color: COLORS.hitboxBorder },
+  { key: 'jcbox', labelKey: 'tool.jcbox', color: COLORS.jcboxBorder },
+  { key: 'pushbox', labelKey: 'tool.pushbox', color: COLORS.pushboxBorder },
+  { key: 'spawnpoint', labelKey: 'tool.spawnpoint', color: COLORS.spawnpoint },
 ]
 
 const GRID_PRESETS = [8, 16, 20, 32, 64]
@@ -69,6 +70,7 @@ export default function PreviewShelf({
   onFacingChange: (f: Facing) => void
   containerRef: RefObject<HTMLDivElement | null>
 }) {
+  const { t } = useTranslation()
   const showLayers = useEditorStore((s) => s.showLayers)
   const toggleLayer = useEditorStore((s) => s.toggleLayer)
   const setLayers = useEditorStore((s) => s.setLayers)
@@ -127,7 +129,7 @@ export default function PreviewShelf({
             <FlipHorizontal />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>朝向预览：{flipped ? '左（点击恢复右）' : '右（点击切换左）'}</TooltipContent>
+        <TooltipContent>{t('preview.facingLabel')}：{flipped ? t('preview.facingLeft') : t('preview.facingRight')}</TooltipContent>
       </Tooltip>
 
       {/* 网格：左键开关，右键设尺寸 */}
@@ -146,13 +148,13 @@ export default function PreviewShelf({
                   <Grid3x3 />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>网格 {gridSize}px（左键开关 · 右键尺寸）</TooltipContent>
+              <TooltipContent>{t('preview.grid', { size: gridSize })}</TooltipContent>
             </Tooltip>
           </span>
         </PopoverAnchor>
         <PopoverContent className="w-44" align="start">
           <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium">网格尺寸</span>
+            <span className="text-xs font-medium">{t('preview.gridSize')}</span>
             <div className="flex items-center gap-2">
               <Input
                 type="number"
@@ -161,7 +163,7 @@ export default function PreviewShelf({
                 onChange={(e) => setGridSize(Math.max(2, parseInt(e.target.value) || 2))}
                 className="h-7 w-16"
               />
-              <span className="text-xs text-muted-foreground">px/格</span>
+              <span className="text-xs text-muted-foreground">{t('preview.pxPerCell')}</span>
             </div>
             <div className="flex flex-wrap gap-1">
               {GRID_PRESETS.map((s) => (
@@ -197,18 +199,18 @@ export default function PreviewShelf({
                   <SquareStack />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>碰撞框（左键全开关 · 右键逐类）</TooltipContent>
+              <TooltipContent>{t('preview.boxes')}</TooltipContent>
             </Tooltip>
           </span>
         </PopoverAnchor>
         <PopoverContent className="w-40" align="start">
           <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium">显隐类型</span>
-            {BOX_GROUPS.map(({ key, label, color }) => (
+            <span className="text-xs font-medium">{t('preview.showTypes')}</span>
+            {BOX_GROUPS.map(({ key, labelKey, color }) => (
               <div key={key} className="flex items-center justify-between">
                 <span className="flex items-center gap-1.5 text-xs">
                   <span className="size-2.5 rounded-sm" style={{ background: color }} />
-                  {label}
+                  {t(labelKey)}
                 </span>
                 <Switch checked={showLayers[key]} onCheckedChange={(v) => setLayers([key], v)} />
               </div>
@@ -233,14 +235,14 @@ export default function PreviewShelf({
                   <Layers />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>洋葱皮（左键开关 · 右键设置）</TooltipContent>
+              <TooltipContent>{t('preview.onion')}</TooltipContent>
             </Tooltip>
           </span>
         </PopoverAnchor>
         <PopoverContent className="w-64" align="start">
           <div className="flex flex-col gap-2.5">
-            <span className="text-xs font-medium">洋葱皮设置</span>
-            <Row label="前帧">
+            <span className="text-xs font-medium">{t('preview.onionSettings')}</span>
+            <Row label={t('preview.prevFrames')}>
               <Input
                 type="number"
                 min={0}
@@ -250,7 +252,7 @@ export default function PreviewShelf({
                 className="h-7"
               />
             </Row>
-            <Row label="后帧">
+            <Row label={t('preview.nextFrames')}>
               <Input
                 type="number"
                 min={0}
@@ -260,19 +262,19 @@ export default function PreviewShelf({
                 className="h-7"
               />
             </Row>
-            <Row label="透明度">
+            <Row label={t('preview.opacity')}>
               <div className="flex items-center gap-2">
                 <Slider className="w-24 shrink-0" value={[onionSkin.baseOpacity]} min={0.1} max={1} step={0.05} onValueChange={([v]) => updateOnionSkin({ baseOpacity: v })} />
                 <span className="w-9 shrink-0 text-right text-xs text-muted-foreground">{Math.round(onionSkin.baseOpacity * 100)}%</span>
               </div>
             </Row>
-            <Row label="衰减率">
+            <Row label={t('preview.decay')}>
               <div className="flex items-center gap-2">
                 <Slider className="w-24 shrink-0" value={[onionSkin.decayRate]} min={0.2} max={1} step={0.05} onValueChange={([v]) => updateOnionSkin({ decayRate: v })} />
                 <span className="w-9 shrink-0 text-right text-xs text-muted-foreground">{Math.round(onionSkin.decayRate * 100)}%</span>
               </div>
             </Row>
-            <Row label="前帧色">
+            <Row label={t('preview.prevColor')}>
               <div className="flex items-center gap-1.5">
                 <input
                   type="color"
@@ -286,12 +288,12 @@ export default function PreviewShelf({
                     onClick={() => updateOnionSkin({ prevColor: c.val })}
                     className="size-5 rounded border"
                     style={{ background: c.val, borderColor: onionSkin.prevColor === c.val ? '#000' : 'var(--border)' }}
-                    title={c.label}
+                    title={t(c.labelKey)}
                   />
                 ))}
               </div>
             </Row>
-            <Row label="后帧色">
+            <Row label={t('preview.nextColor')}>
               <div className="flex items-center gap-1.5">
                 <input
                   type="color"
@@ -305,16 +307,16 @@ export default function PreviewShelf({
                     onClick={() => updateOnionSkin({ nextColor: c.val })}
                     className="size-5 rounded border"
                     style={{ background: c.val, borderColor: onionSkin.nextColor === c.val ? '#000' : 'var(--border)' }}
-                    title={c.label}
+                    title={t(c.labelKey)}
                   />
                 ))}
               </div>
             </Row>
             <Separator className="my-0.5" />
-            <Row label="精灵图">
+            <Row label={t('preview.sprite')}>
               <Switch checked={onionSkin.showSprite} onCheckedChange={(v) => updateOnionSkin({ showSprite: v })} />
             </Row>
-            <Row label="碰撞框">
+            <Row label={t('preview.boxesLabel')}>
               <Switch checked={onionSkin.showBoxes} onCheckedChange={(v) => updateOnionSkin({ showBoxes: v })} />
             </Row>
           </div>

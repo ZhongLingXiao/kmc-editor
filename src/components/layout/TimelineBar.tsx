@@ -1,4 +1,5 @@
 import { useRef, useState, useMemo, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useEditorStore } from '../../store/editorStore'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -29,6 +30,7 @@ function TBtn({ children, onClick, disabled, title }: { children: React.ReactNod
 }
 
 export default function TimelineBar() {
+  const { t } = useTranslation()
   const animation = useEditorStore((s) => s.animation)
   const currentFrameIndex = useEditorStore((s) => s.currentFrameIndex)
   const currentTick = useEditorStore((s) => s.currentTick)
@@ -165,13 +167,13 @@ export default function TimelineBar() {
   return (
     <div className="flex shrink-0 flex-col border-t bg-card" onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
       <div className="flex h-[38px] items-center gap-1 border-b px-2">
-        <TBtn title="第一帧" onClick={() => { setPlaying(false); setFrame(0) }} disabled={!hasFrames}><SkipBack /></TBtn>
-        <TBtn title="上一帧 (←)" onClick={() => { setPlaying(false); if (currentFrameIndex > 0) setFrame(currentFrameIndex - 1) }} disabled={!hasFrames || isFirstFrame}><ChevronLeft /></TBtn>
-        <TBtn title={isPlaying ? '暂停 (空格)' : '播放 (空格)'} onClick={() => isPlaying ? setPlaying(false) : handlePlay()} disabled={!hasFrames}>
+        <TBtn title={t('timeline.first')} onClick={() => { setPlaying(false); setFrame(0) }} disabled={!hasFrames}><SkipBack /></TBtn>
+        <TBtn title={t('timeline.prev')} onClick={() => { setPlaying(false); if (currentFrameIndex > 0) setFrame(currentFrameIndex - 1) }} disabled={!hasFrames || isFirstFrame}><ChevronLeft /></TBtn>
+        <TBtn title={isPlaying ? t('timeline.pause') : t('timeline.play')} onClick={() => isPlaying ? setPlaying(false) : handlePlay()} disabled={!hasFrames}>
           {isPlaying ? <Pause /> : <Play />}
         </TBtn>
-        <TBtn title="下一帧 (→)" onClick={() => { setPlaying(false); if (!isLastFrame) setFrame(currentFrameIndex + 1) }} disabled={!hasFrames || isLastFrame}><ChevronRight /></TBtn>
-        <TBtn title="最后帧" onClick={() => { setPlaying(false); setFrame(animation.elements.length - 1) }} disabled={!hasFrames}><SkipForward /></TBtn>
+        <TBtn title={t('timeline.next')} onClick={() => { setPlaying(false); if (!isLastFrame) setFrame(currentFrameIndex + 1) }} disabled={!hasFrames || isLastFrame}><ChevronRight /></TBtn>
+        <TBtn title={t('timeline.last')} onClick={() => { setPlaying(false); setFrame(animation.elements.length - 1) }} disabled={!hasFrames}><SkipForward /></TBtn>
 
         <Separator orientation="vertical" className="mx-1 h-5" />
 
@@ -187,7 +189,7 @@ export default function TimelineBar() {
               <Repeat className={cn(previewLoop && 'text-primary')} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>循环播放</TooltipContent>
+          <TooltipContent>{t('timeline.loop')}</TooltipContent>
         </Tooltip>
 
         <Separator orientation="vertical" className="mx-1 h-5" />
@@ -197,7 +199,7 @@ export default function TimelineBar() {
           <SelectContent>
             <SelectItem value="0.25">0.25x</SelectItem>
             <SelectItem value="0.5">0.5x</SelectItem>
-            <SelectItem value="1">1x (60fps)</SelectItem>
+            <SelectItem value="1">{t('timeline.speed60')}</SelectItem>
             <SelectItem value="2">2x</SelectItem>
           </SelectContent>
         </Select>
@@ -205,7 +207,7 @@ export default function TimelineBar() {
         <Separator orientation="vertical" className="mx-1 h-5" />
 
         <Badge variant="secondary" className="font-normal">
-          帧 {currentFrameIndex >= 0 ? currentFrameIndex : '-'}/{hasFrames ? animation.elements.length - 1 : 0}
+          {t('timeline.frameBadge', { cur: currentFrameIndex >= 0 ? currentFrameIndex : '-', total: hasFrames ? animation.elements.length - 1 : 0 })}
         </Badge>
         <Badge variant="secondary" className="font-normal text-orange-600">
           Tick {currentTick}/{animation.totalTicks}
@@ -219,8 +221,8 @@ export default function TimelineBar() {
         <div className="flex-1" />
 
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Kbd className="px-1.5 py-0 text-[10px]">滚轮</Kbd>
-          <span>缩放时间线</span>
+          <Kbd className="px-1.5 py-0 text-[10px]">{t('common.wheel')}</Kbd>
+          <span>{t('timeline.zoomTimeline')}</span>
         </div>
       </div>
 
@@ -274,7 +276,7 @@ export default function TimelineBar() {
               })
             ) : (
               <div className="flex h-full items-center justify-center text-[11px] text-muted-foreground">
-                导入图片以创建帧
+                {t('timeline.importToCreate')}
               </div>
             )}
           </div>

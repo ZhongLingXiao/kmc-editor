@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useEditorStore } from '../../store/editorStore'
 import { useProjectStore } from '../../store/projectStore'
 import EditorCanvas from '../canvas/EditorCanvas'
@@ -23,6 +24,7 @@ import { MousePointer2, Move, Square, Swords, Diamond, Box, Crosshair } from 'lu
 import { toast } from 'sonner'
 
 export default function CanvasArea() {
+  const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const setCanvasSize = useEditorStore((s) => s.setCanvasSize)
   const scale = useEditorStore((s) => s.scale)
@@ -138,9 +140,9 @@ export default function CanvasArea() {
       for (let k = 1; k < results.length; k++) {
         appendFrameAndLoad(results[k].src, 0, 0, results[k].w, results[k].h)
       }
-      toast.success(`已导入 ${results.length} 帧`)
+      toast.success(t('toast.importedN', { count: results.length }))
     } catch (err) {
-      toast.error((err as Error).message || '图片加载失败')
+      toast.error((err as Error).message || t('toast.loadFailed'))
     }
   }
 
@@ -166,7 +168,7 @@ export default function CanvasArea() {
   // 拖图触发的创建动画确认：创建动画后导入暂存的图片
   const handlePendingDropConfirm = async (name: string) => {
     await useProjectStore.getState().createAnimation(name)
-    toast.success(`已创建动画 ${name}`)
+      toast.success(t('toast.createdAnim', { name }))
     const files = pendingDropFiles
     setPendingDropFiles([])
     if (files.length === 0) return
@@ -193,9 +195,9 @@ export default function CanvasArea() {
       for (let i = 1; i < regions.length; i++) {
         appendFrameAndLoad(info.src, regions[i].x, regions[i].y, regions[i].w, regions[i].h)
       }
-      toast.success(result.mode === 'single' ? '已导入图片' : `已导入 ${regions.length} 帧`)
+      toast.success(result.mode === 'single' ? t('toast.imported') : t('toast.importedN', { count: regions.length }))
     } catch (err) {
-      toast.error((err as Error).message || '图片加载失败')
+      toast.error((err as Error).message || t('toast.loadFailed'))
     }
   }
 
@@ -230,29 +232,29 @@ export default function CanvasArea() {
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuSub>
-            <ContextMenuSubTrigger>切换工具</ContextMenuSubTrigger>
+            <ContextMenuSubTrigger>{t('canvas.tools')}</ContextMenuSubTrigger>
             <ContextMenuSubContent>
               <ContextMenuItem onClick={() => setTool('select')}>
-                <MousePointer2 /> 选择
+                <MousePointer2 /> {t('tool.select')}
               </ContextMenuItem>
               <ContextMenuItem onClick={() => setTool('anchor')}>
-                <Move /> 精灵对齐
+                <Move /> {t('tool.anchor')}
               </ContextMenuItem>
               <ContextMenuSeparator />
               <ContextMenuItem onClick={() => setTool('hurtbox')}>
-                <Square /> 受击框
+                <Square /> {t('tool.hurtbox')}
               </ContextMenuItem>
               <ContextMenuItem onClick={() => setTool('hitbox')}>
-                <Swords /> 攻击框
+                <Swords /> {t('tool.hitbox')}
               </ContextMenuItem>
               <ContextMenuItem onClick={() => setTool('jcbox')}>
-                <Diamond /> JC框
+                <Diamond /> {t('tool.jcbox')}
               </ContextMenuItem>
               <ContextMenuItem onClick={() => setTool('pushbox')}>
-                <Box /> 推挤框
+                <Box /> {t('tool.pushbox')}
               </ContextMenuItem>
               <ContextMenuItem onClick={() => setTool('spawnpoint')}>
-                <Crosshair /> 发射点
+                <Crosshair /> {t('tool.spawnpoint')}
               </ContextMenuItem>
             </ContextMenuSubContent>
           </ContextMenuSub>
@@ -260,25 +262,25 @@ export default function CanvasArea() {
           {frame && frame.sprite.w > 0 && (
             <>
               <ContextMenuItem onClick={() => setOffset(currentFrameIndex, Math.round(frame.sprite.w / 2), frame.sprite.h)}>
-                设为脚底中心
+                {t('canvas.footCenter')}
               </ContextMenuItem>
               <ContextMenuItem onClick={() => setOffset(currentFrameIndex, Math.round(frame.sprite.w / 2), Math.round(frame.sprite.h / 2))}>
-                设为图片中心
+                {t('canvas.imageCenter')}
               </ContextMenuItem>
               <ContextMenuSeparator />
             </>
           )}
-          <ContextMenuItem onClick={() => addFrame()}>新建帧</ContextMenuItem>
-          <ContextMenuItem onClick={() => resetView()}>重置视图</ContextMenuItem>
+          <ContextMenuItem onClick={() => addFrame()}>{t('canvas.newFrame')}</ContextMenuItem>
+          <ContextMenuItem onClick={() => resetView()}>{t('canvas.resetView')}</ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuSub>
-            <ContextMenuSubTrigger>切换图层</ContextMenuSubTrigger>
+            <ContextMenuSubTrigger>{t('canvas.layers')}</ContextMenuSubTrigger>
             <ContextMenuSubContent>
               <ContextMenuItem onClick={() => toggleLayer('grid')}>
-                {showLayers.grid ? '✓ ' : ''}网格
+                {showLayers.grid ? '✓ ' : ''}{t('canvas.grid')}
               </ContextMenuItem>
               <ContextMenuItem onClick={() => toggleLayer('onionSkin')}>
-                {showLayers.onionSkin ? '✓ ' : ''}洋葱皮
+                {showLayers.onionSkin ? '✓ ' : ''}{t('canvas.onion')}
               </ContextMenuItem>
             </ContextMenuSubContent>
           </ContextMenuSub>
@@ -289,7 +291,7 @@ export default function CanvasArea() {
       <ShortcutsOverlay />
 
       <Badge variant="secondary" className="pointer-events-none absolute bottom-2 right-3 font-normal">
-        缩放 {Math.round(scale * 100)}%
+        {t('canvas.scale')} {Math.round(scale * 100)}%
       </Badge>
 
       <NewAnimationDialog

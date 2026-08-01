@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useEditorStore } from '../../store/editorStore'
 import { COLORS } from '../../types/animation'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -32,6 +33,7 @@ const TYPE_META: Record<ObjType, { color: string; abbrev: string }> = {
 }
 
 export default function Outline() {
+  const { t } = useTranslation()
   const animation = useEditorStore((s) => s.animation)
   // 播放时冻结为 -1：大纲不跟随帧变化刷新，避免播放性能损耗
   const currentFrameIndex = useEditorStore((s) => (s.isPlaying ? -1 : s.currentFrameIndex))
@@ -52,10 +54,10 @@ export default function Outline() {
   if (frame) {
     const push = (id: string, type: ObjType, label: string) =>
       items.push({ id, type, label, color: TYPE_META[type].color, abbrev: TYPE_META[type].abbrev })
-    frame.hurtboxes.forEach((b, i) => push(b.id, 'hurtbox', `受击框 ${i + 1}`))
-    frame.hitboxes.forEach((b, i) => push(b.id, 'hitbox', `攻击框 ${i + 1}`))
-    frame.jcboxes.forEach((b, i) => push(b.id, 'jcbox', `JC框 ${i + 1}`))
-    if (animation.pushbox.stand) push(animation.pushbox.stand.id, 'pushbox', '推挤框（站立）')
+    frame.hurtboxes.forEach((b, i) => push(b.id, 'hurtbox', `${t('tool.hurtbox')} ${i + 1}`))
+    frame.hitboxes.forEach((b, i) => push(b.id, 'hitbox', `${t('tool.hitbox')} ${i + 1}`))
+    frame.jcboxes.forEach((b, i) => push(b.id, 'jcbox', `${t('tool.jcbox')} ${i + 1}`))
+    if (animation.pushbox.stand) push(animation.pushbox.stand.id, 'pushbox', t('inspector.pushboxStand'))
     frame.spawnPoints.forEach((p) => push(p.id, 'spawnpoint', p.name))
   }
 
@@ -94,7 +96,7 @@ export default function Outline() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center justify-between bg-muted/50 px-3 py-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">场景大纲</span>
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('outline.title')}</span>
         {frame && <Badge variant="secondary" className="font-normal">{totalObjects}</Badge>}
       </div>
       <Separator />
@@ -103,11 +105,11 @@ export default function Outline() {
         <div className="p-1" onClick={() => clearSelection()}>
           {!frame && (
             <div className="px-3 py-8 text-center text-xs text-muted-foreground">
-              {isPlaying ? '播放中…' : '无当前帧'}
+              {isPlaying ? t('outline.playing') : t('outline.noFrame')}
             </div>
           )}
           {frame && totalObjects === 0 && (
-            <div className="px-3 py-8 text-center text-xs text-muted-foreground">当前帧无对象</div>
+            <div className="px-3 py-8 text-center text-xs text-muted-foreground">{t('outline.noObjects')}</div>
           )}
           {items.map((it, i) => {
             const selected = selectedIds.includes(it.id)
@@ -138,7 +140,7 @@ export default function Outline() {
                       onClick={() => removeSelected()}
                       className="text-destructive focus:text-destructive"
                     >
-                      <Trash2 /> 删除
+                      <Trash2 /> {t('outline.delete')}
                     </ContextMenuItem>
                   </ContextMenuContent>
                 </ContextMenu>

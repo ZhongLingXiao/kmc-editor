@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Dialog,
   DialogContent,
@@ -38,6 +39,7 @@ interface Props {
 }
 
 export default function SpriteSheetDialog({ open, onOpenChange, file, onConfirm, onCancel }: Props) {
+  const { t } = useTranslation()
   const [imgUrl, setImgUrl] = useState('')
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null)
   const [mode, setMode] = useState<'single' | 'grid'>('single')
@@ -99,24 +101,24 @@ export default function SpriteSheetDialog({ open, onOpenChange, file, onConfirm,
     }}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>导入精灵图</DialogTitle>
+          <DialogTitle>{t('dialogSprite.title')}</DialogTitle>
           <DialogDescription>
-            选择单帧导入整图，或多帧切分将一张图按网格切成多帧。
+            {t('dialogSprite.desc')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4 py-1">
           {/* 模式选择 */}
           <div className="flex flex-col gap-1.5">
-            <Label>导入模式</Label>
+            <Label>{t('dialogSprite.mode')}</Label>
             <ToggleGroup type="single" value={mode} onValueChange={(v) => v && setMode(v as 'single' | 'grid')}>
-              <ToggleGroupItem value="single" aria-label="单帧">
+              <ToggleGroupItem value="single" aria-label={t('dialogSprite.single')}>
                 <ImageIcon className="size-4 mr-1.5" />
-                单帧（整图作为一帧）
+                {t('dialogSprite.single')}
               </ToggleGroupItem>
-              <ToggleGroupItem value="grid" aria-label="多帧切分">
+              <ToggleGroupItem value="grid" aria-label={t('dialogSprite.grid')}>
                 <LayoutGrid className="size-4 mr-1.5" />
-                多帧切分（网格）
+                {t('dialogSprite.grid')}
               </ToggleGroupItem>
             </ToggleGroup>
           </div>
@@ -157,7 +159,7 @@ export default function SpriteSheetDialog({ open, onOpenChange, file, onConfirm,
             <div className="flex flex-col gap-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="ss-cols">列数</Label>
+                  <Label htmlFor="ss-cols">{t('dialogSprite.cols')}</Label>
                   <Input
                     id="ss-cols"
                     type="number"
@@ -168,7 +170,7 @@ export default function SpriteSheetDialog({ open, onOpenChange, file, onConfirm,
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="ss-rows">行数</Label>
+                  <Label htmlFor="ss-rows">{t('dialogSprite.rows')}</Label>
                   <Input
                     id="ss-rows"
                     type="number"
@@ -180,10 +182,9 @@ export default function SpriteSheetDialog({ open, onOpenChange, file, onConfirm,
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                帧尺寸 <span className="font-mono">{frameW}×{frameH}</span>，将生成{' '}
-                <span className="font-medium text-foreground">{regions.length}</span> 帧
+                {t('dialogSprite.frameSize')} <span className="font-mono">{frameW}×{frameH}</span>，{t('dialogSprite.willGen', { count: regions.length })}
                 {imgSize && (frameW * cols < imgSize.w || frameH * rows < imgSize.h) && (
-                  <span className="text-amber-600">（整除有余，右侧/下侧余数像素将被裁掉）</span>
+                  <span className="text-amber-600">{t('dialogSprite.remainderWarn')}</span>
                 )}
               </p>
             </div>
@@ -195,10 +196,10 @@ export default function SpriteSheetDialog({ open, onOpenChange, file, onConfirm,
             if (onCancel) onCancel()
             onOpenChange(false)
           }}>
-            取消
+            {t('dialogSprite.cancel')}
           </Button>
           <Button onClick={handleConfirm} disabled={!imgSize || regions.length === 0}>
-            {mode === 'single' ? '导入' : `导入 ${regions.length} 帧`}
+            {mode === 'single' ? t('dialogSprite.import') : t('dialogSprite.importN', { count: regions.length })}
           </Button>
         </DialogFooter>
       </DialogContent>

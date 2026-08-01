@@ -1,50 +1,19 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Kbd } from '@/components/ui/kbd'
 import { Keyboard, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 
 interface ShortcutItem {
   keys: string[]
-  desc: string
+  descKey: string
 }
 
-const SHORTCUT_GROUPS: { title: string; items: ShortcutItem[] }[] = [
-  {
-    title: '工具',
-    items: [
-      { keys: ['Q'], desc: '选择' },
-      { keys: ['W'], desc: '精灵对齐' },
-    ],
-  },
-  {
-    title: '帧',
-    items: [
-      { keys: ['←', '→'], desc: '切换帧' },
-      { keys: ['Delete'], desc: '删除选中/当前帧' },
-    ],
-  },
-  {
-    title: '编辑',
-    items: [
-      { keys: ['↑', '↓', '←', '→'], desc: '微调选中元素' },
-      { keys: ['Shift', '拖拽'], desc: '锁主轴向' },
-      { keys: ['Esc'], desc: '取消选中' },
-      { keys: ['Ctrl', 'Z'], desc: '撤销' },
-      { keys: ['Ctrl', 'Y'], desc: '重做' },
-    ],
-  },
-  {
-    title: '视图',
-    items: [
-      { keys: ['Space'], desc: '播放/暂停·平移' },
-      { keys: ['滚轮'], desc: '缩放画布' },
-    ],
-  },
-]
-
-function ShortcutRow({ keys, desc }: ShortcutItem) {
+function ShortcutRow({ keys, descKey }: ShortcutItem) {
+  const { t } = useTranslation()
+  const desc = t(descKey)
   return (
     <div className="flex items-center justify-between gap-2">
       <div className="flex shrink-0 items-center gap-0.5">
@@ -61,7 +30,42 @@ function ShortcutRow({ keys, desc }: ShortcutItem) {
 }
 
 export default function ShortcutsOverlay() {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
+
+  const groups: { titleKey: string; items: ShortcutItem[] }[] = useMemo(() => [
+    {
+      titleKey: 'shortcut.groupTool',
+      items: [
+        { keys: ['Q'], descKey: 'shortcut.selSelect' },
+        { keys: ['W'], descKey: 'shortcut.selAnchor' },
+      ],
+    },
+    {
+      titleKey: 'shortcut.groupFrame',
+      items: [
+        { keys: ['←', '→'], descKey: 'shortcut.frameSwitch' },
+        { keys: ['Delete'], descKey: 'shortcut.frameDelete' },
+      ],
+    },
+    {
+      titleKey: 'shortcut.groupEdit',
+      items: [
+        { keys: ['↑', '↓', '←', '→'], descKey: 'shortcut.editNudge' },
+        { keys: ['Shift', t('common.drag')], descKey: 'shortcut.editLockAxis' },
+        { keys: ['Esc'], descKey: 'shortcut.editCancel' },
+        { keys: ['Ctrl', 'Z'], descKey: 'shortcut.editUndo' },
+        { keys: ['Ctrl', 'Y'], descKey: 'shortcut.editRedo' },
+      ],
+    },
+    {
+      titleKey: 'shortcut.groupView',
+      items: [
+        { keys: ['Space'], descKey: 'shortcut.viewPlay' },
+        { keys: [t('common.wheel')], descKey: 'shortcut.viewZoom' },
+      ],
+    },
+  ], [t])
 
   return (
     <Collapsible
@@ -81,20 +85,20 @@ export default function ShortcutsOverlay() {
             {open ? <X /> : <Keyboard />}
           </Button>
         </TooltipTrigger>
-        <TooltipContent>{open ? '收起' : '快捷键'}</TooltipContent>
+        <TooltipContent>{open ? t('shortcut.collapse') : t('shortcut.title')}</TooltipContent>
       </Tooltip>
       <CollapsibleContent className="absolute right-0 top-full mt-1">
         <div className="w-[210px] rounded-md border bg-card/80 p-2 shadow backdrop-blur-sm">
-          <span className="mb-1.5 block text-xs font-semibold">快捷键</span>
+          <span className="mb-1.5 block text-xs font-semibold">{t('shortcut.title')}</span>
           <div className="flex flex-col gap-2">
-            {SHORTCUT_GROUPS.map((g) => (
-              <div key={g.title} className="flex flex-col gap-1">
+            {groups.map((g) => (
+              <div key={g.titleKey} className="flex flex-col gap-1">
                 <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
-                  {g.title}
+                  {t(g.titleKey)}
                 </span>
                 <div className="flex flex-col gap-1">
                   {g.items.map((s) => (
-                    <ShortcutRow key={s.desc} {...s} />
+                    <ShortcutRow key={s.descKey} {...s} />
                   ))}
                 </div>
               </div>

@@ -156,7 +156,7 @@ function applySpecsToFrame(
 function createDefaultAnimation(): AnimationData {
   return {
     id: 'anim_new',
-    name: '新动画',
+    name: 'New Animation',
     version: '1.0',
     totalTicks: 0,
     loop: false,

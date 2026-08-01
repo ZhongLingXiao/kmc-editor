@@ -1,4 +1,5 @@
 import { useEditorStore } from '../../store/editorStore'
+import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -29,6 +30,7 @@ function StatRow({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 export default function SettingsPanel() {
+  const { t } = useTranslation()
   const animation = useEditorStore((s) => s.animation)
   const updateAnimationMeta = useEditorStore((s) => s.updateAnimationMeta)
   const settingsOpen = useEditorStore((s) => s.settingsOpen)
@@ -38,22 +40,22 @@ export default function SettingsPanel() {
     <div className="flex min-h-0 flex-1 flex-col">
       <Accordion type="multiple" value={settingsOpen} onValueChange={setSettingsOpen} className="min-h-0 flex-1 overflow-auto px-2">
         <AccordionItem value="anim">
-          <AccordionTrigger className="text-xs">动画属性</AccordionTrigger>
+          <AccordionTrigger className="text-xs">{t('settings.title')}</AccordionTrigger>
           <AccordionContent className="flex flex-col gap-2.5 px-1 pb-3">
             <Row label="ID">
-              <Input value={animation.id} readOnly className="h-7 bg-muted text-muted-foreground" title="ID 创建后不可修改，用作文件夹与资源路径" />
+              <Input value={animation.id} readOnly className="h-7 bg-muted text-muted-foreground" title={t('settings.idHint')} />
             </Row>
-            <Row label="名称">
+            <Row label={t('settings.name')}>
               <Input value={animation.name} onChange={(e) => updateAnimationMeta({ name: e.target.value })} className="h-7" />
             </Row>
-            <Row label="循环(导出)">
+            <Row label={t('settings.loop')}>
               <Switch checked={animation.loop} onCheckedChange={(v) => updateAnimationMeta({ loop: v })} />
             </Row>
             <Separator className="my-1" />
-            <span className="text-xs font-medium text-muted-foreground">信息</span>
+            <span className="text-xs font-medium text-muted-foreground">{t('settings.info')}</span>
             <div className="flex flex-col gap-1">
-              <StatRow label="总时长" value={`${animation.totalTicks} Tick`} />
-              <StatRow label="帧数" value={animation.elements.length} />
+              <StatRow label={t('settings.totalTicks')} value={`${animation.totalTicks} Tick`} />
+              <StatRow label={t('settings.frameCount')} value={animation.elements.length} />
             </div>
           </AccordionContent>
         </AccordionItem>

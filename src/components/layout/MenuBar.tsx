@@ -14,8 +14,17 @@ import {
   MenubarSubTrigger,
   MenubarSubContent,
 } from '@/components/ui/menubar'
-import { Undo2, Redo2, Clock, FilePlus2, FolderOpen, Save, SaveAll, FileInput, Download, Settings, Maximize } from 'lucide-react'
+import { Undo2, Redo2, Clock, FilePlus2, FolderOpen, Save, SaveAll, FileInput, Download, Settings, Maximize, Globe } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from '@/components/ui/dropdown-menu'
+import { useTranslation } from 'react-i18next'
+import { changeLang } from '../../i18n'
 import { useEditorStore } from '../../store/editorStore'
 import { useProjectStore } from '../../store/projectStore'
 import { exportAnimation, importAnimation, buildExportData } from '../../utils/export'
@@ -27,6 +36,7 @@ import PreferencesDialog from './PreferencesDialog'
 import NewAnimationDialog from './NewAnimationDialog'
 
 export default function MenuBar() {
+  const { t, i18n } = useTranslation()
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const animation = useEditorStore((s) => s.animation)
   const showLayers = useEditorStore((s) => s.showLayers)
@@ -77,9 +87,9 @@ export default function MenuBar() {
   const handleNewConfirm = async (name: string) => {
     try {
       await createAnimation(name)
-      toast.success(`已创建动画 ${name}`)
+      toast.success(t('toast.createdAnim', { name }))
     } catch (err) {
-      toast.error('创建失败：' + (err as Error).message)
+      toast.error(t('toast.createFailed') + '：' + (err as Error).message)
     }
   }
 
@@ -88,13 +98,13 @@ export default function MenuBar() {
     try {
       // @ts-ignore - File System Access API
       const [handle] = await window.showOpenFilePicker({
-        types: [{ description: '动画文件', accept: { 'application/json': ['.json'] } }],
+        types: [{ description: t('menu.animFileDesc'), accept: { 'application/json': ['.json'] } }],
         multiple: false,
         // @ts-ignore
         startIn: workspaceHandle ?? undefined,
       })
       await openAnimation(handle)
-      toast.success(`已打开 ${useEditorStore.getState().animation.name}`)
+      toast.success(t('toast.opened', { name: useEditorStore.getState().animation.name }))
     } catch (err) {
       // 用户取消或浏览器不支持
     }
@@ -104,9 +114,9 @@ export default function MenuBar() {
   const handleOpenRecent = async (item: RecentFile) => {
     try {
       await openRecentFile(item)
-      toast.success(`已打开 ${item.fileName}`)
+      toast.success(t('toast.opened', { name: item.fileName }))
     } catch (err) {
-      toast.error(`无法打开 ${item.fileName}：${(err as Error).message}`)
+      toast.error(t('toast.openFailed', { name: item.fileName }) + '：' + (err as Error).message)
       // 句柄可能已失效（文件被删/移动），从列表移除
       await removeRecentFile(item.fileHandle)
     }
@@ -116,14 +126,14 @@ export default function MenuBar() {
   const handleSave = async () => {
     const workspaceHandle = useProjectStore.getState().workspaceHandle
     if (!workspaceHandle) {
-      toast.error('请先设定工作区目录（新建动画时选择）')
+      toast.error(t('toast.saveFirst'))
       setOpenMenu(null)
       return
     }
     // 启动恢复的工作区可能尚未授权，首次保存时请求权限
     const ok = await ensurePermission(workspaceHandle, 'readwrite')
     if (!ok) {
-      toast.error('工作区权限被拒绝，无法保存')
+      toast.error(t('toast.permissionDenied'))
       setOpenMenu(null)
       return
     }
@@ -132,9 +142,9 @@ export default function MenuBar() {
     try {
       const data = buildExportData(anim, useEditorStore.getState().saveEditorMetadata)
       await saveAnimJson(workspaceHandle, anim.id, JSON.stringify(data, null, 2))
-      toast.success('已保存')
+      toast.success(t('toast.saved'))
     } catch (err) {
-      toast.error('保存失败：' + (err as Error).message)
+      toast.error(t('toast.saveFailed') + '：' + (err as Error).message)
     }
     setOpenMenu(null)
   }
@@ -146,13 +156,13 @@ export default function MenuBar() {
       // @ts-ignore
       const handle = await window.showSaveFilePicker({
         suggestedName: `${anim.id}.json`,
-        types: [{ description: '动画文件', accept: { 'application/json': ['.json'] } }],
+        types: [{ description: t('menu.animFileDesc'), accept: { 'application/json': ['.json'] } }],
       })
       const writable = await handle.createWritable()
       const data = buildExportData(anim, useEditorStore.getState().saveEditorMetadata)
       await writable.write(JSON.stringify(data, null, 2))
       await writable.close()
-      toast.success('已另存为')
+      toast.success(t('toast.savedAs'))
     } catch (err) {
       // 用户取消
     }
@@ -174,7 +184,7 @@ export default function MenuBar() {
       if (needsMigration(data)) {
         const workspaceHandle = useProjectStore.getState().workspaceHandle
         if (!workspaceHandle) {
-          toast.warning('此文件为旧格式（含内嵌图片），请先新建动画设定工作区再导入，以便迁移图片')
+          toast.warning(t('toast.legacyWarn'))
           useEditorStore.getState().setAnimation(data)
           e.target.value = ''
           setOpenMenu(null)
@@ -182,13 +192,13 @@ export default function MenuBar() {
         }
         const migrated = await migrateBase64Sprites(workspaceHandle, data, data.id)
         useEditorStore.getState().setAnimation(migrated)
-        toast.success(`已导入并迁移 ${data.name}`)
+        toast.success(t('toast.importedMigrated', { name: data.name }))
       } else {
         useEditorStore.getState().setAnimation(data)
-        toast.success(`已导入 ${data.name}`)
+        toast.success(t('toast.importedName', { name: data.name }))
       }
     } catch (err) {
-      toast.error('导入失败：' + (err as Error).message)
+      toast.error(t('toast.importFailed') + '：' + (err as Error).message)
     }
     e.target.value = ''
     setOpenMenu(null)
@@ -198,21 +208,21 @@ export default function MenuBar() {
     <div className="flex h-9 shrink-0 items-center gap-1 border-b bg-card px-2" ref={menuRef}>
       <Menubar>
         <MenubarMenu>
-          <MenubarTrigger>文件</MenubarTrigger>
+          <MenubarTrigger>{t('menu.file')}</MenubarTrigger>
           <MenubarContent>
             <MenubarItem id="menu-new-project" onClick={handleNew}>
-              <FilePlus2 /> 新建动画… <MenubarShortcut>Ctrl+N</MenubarShortcut>
+              <FilePlus2 /> {t('menu.new')} <MenubarShortcut>Ctrl+N</MenubarShortcut>
             </MenubarItem>
             <MenubarItem id="menu-open-project" onClick={handleOpen}>
-              <FolderOpen /> 打开动画… <MenubarShortcut>Ctrl+O</MenubarShortcut>
+              <FolderOpen /> {t('menu.open')} <MenubarShortcut>Ctrl+O</MenubarShortcut>
             </MenubarItem>
             <MenubarSub>
               <MenubarSubTrigger>
-                <Clock className="size-4 mr-2 text-muted-foreground" /> 近期打开
+                <Clock className="size-4 mr-2 text-muted-foreground" /> {t('menu.recent')}
               </MenubarSubTrigger>
               <MenubarSubContent>
                 {recentFiles.length === 0 ? (
-                  <MenubarItem disabled>暂无记录</MenubarItem>
+                  <MenubarItem disabled>{t('menu.recentEmpty')}</MenubarItem>
                 ) : (
                   recentFiles.map((item, idx) => (
                     <MenubarItem
@@ -234,7 +244,7 @@ export default function MenuBar() {
                       onClick={() => { void clearRecentFiles(); setOpenMenu(null) }}
                       className="text-muted-foreground"
                     >
-                      清空列表
+                      {t('menu.clearList')}
                     </MenubarItem>
                   </>
                 )}
@@ -242,55 +252,55 @@ export default function MenuBar() {
             </MenubarSub>
             <MenubarSeparator />
             <MenubarItem id="menu-save" onClick={handleSave} disabled={!hasWorkspace}>
-              <Save /> 保存 <MenubarShortcut>Ctrl+S</MenubarShortcut>
+              <Save /> {t('menu.save')} <MenubarShortcut>Ctrl+S</MenubarShortcut>
             </MenubarItem>
             <MenubarItem id="menu-saveas" onClick={handleSaveAs}>
-              <SaveAll /> 另存为… <MenubarShortcut>Ctrl+Shift+S</MenubarShortcut>
+              <SaveAll /> {t('menu.saveAs')} <MenubarShortcut>Ctrl+Shift+S</MenubarShortcut>
             </MenubarItem>
             <MenubarSeparator />
             <MenubarItem onClick={() => fileInputRef.current?.click()}>
-              <FileInput /> 导入旧 JSON…
+              <FileInput /> {t('menu.importLegacy')}
             </MenubarItem>
             <MenubarItem id="menu-export" onClick={handleExport}>
-              <Download /> 导出（下载）
+              <Download /> {t('menu.export')}
             </MenubarItem>
           </MenubarContent>
         </MenubarMenu>
 
         <MenubarMenu>
-          <MenubarTrigger>编辑</MenubarTrigger>
+          <MenubarTrigger>{t('menu.edit')}</MenubarTrigger>
           <MenubarContent>
             <MenubarItem onClick={undo} disabled={!canUndo}>
-              <Undo2 /> 撤销 <MenubarShortcut>Ctrl+Z</MenubarShortcut>
+              <Undo2 /> {t('menu.undo')} <MenubarShortcut>Ctrl+Z</MenubarShortcut>
             </MenubarItem>
             <MenubarItem onClick={redo} disabled={!canRedo}>
-              <Redo2 /> 重做 <MenubarShortcut>Ctrl+Y</MenubarShortcut>
+              <Redo2 /> {t('menu.redo')} <MenubarShortcut>Ctrl+Y</MenubarShortcut>
             </MenubarItem>
             <MenubarSeparator />
             <MenubarItem onClick={() => { setPreferencesOpen(true); setOpenMenu(null) }}>
-              <Settings /> 偏好设置…
+              <Settings /> {t('menu.preferences')}
             </MenubarItem>
           </MenubarContent>
         </MenubarMenu>
 
         <MenubarMenu>
-          <MenubarTrigger>视图</MenubarTrigger>
+          <MenubarTrigger>{t('menu.view')}</MenubarTrigger>
           <MenubarContent>
             <MenubarItem onClick={() => { resetView(); setOpenMenu(null) }}>
-              <Maximize /> 重置视图
+              <Maximize /> {t('menu.resetView')}
             </MenubarItem>
             <MenubarSeparator />
             <MenubarCheckboxItem
               checked={showLayers.grid}
               onClick={() => toggleLayer('grid')}
             >
-              显示网格
+              {t('menu.showGrid')}
             </MenubarCheckboxItem>
             <MenubarCheckboxItem
               checked={showLayers.onionSkin}
               onClick={() => toggleLayer('onionSkin')}
             >
-              显示洋葱皮
+              {t('menu.showOnion')}
             </MenubarCheckboxItem>
           </MenubarContent>
         </MenubarMenu>
@@ -307,14 +317,14 @@ export default function MenuBar() {
       <div className="flex-1" />
 
       {hasWorkspace && (
-        <Badge variant="outline" className="gap-1 font-normal" title="工作区">
+        <Badge variant="outline" className="gap-1 font-normal" title={t('menu.workspace')}>
           {workspaceName}
         </Badge>
       )}
 
       <Badge variant="secondary" className="gap-1 font-normal">
         {animation.name}
-        <span className="text-muted-foreground">{animation.elements.length} 帧</span>
+        <span className="text-muted-foreground">{animation.elements.length} {t('common.frames')}</span>
       </Badge>
 
       <Separator orientation="vertical" className="mx-1 h-5" />
@@ -325,7 +335,7 @@ export default function MenuBar() {
             <Undo2 />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>撤销 Ctrl+Z</TooltipContent>
+        <TooltipContent>{t('menu.undo')} Ctrl+Z</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
@@ -333,8 +343,32 @@ export default function MenuBar() {
             <Redo2 />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>重做 Ctrl+Y</TooltipContent>
+        <TooltipContent>{t('menu.redo')} Ctrl+Y</TooltipContent>
       </Tooltip>
+
+      <Separator orientation="vertical" className="mx-1 h-5" />
+
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" aria-label={t('lang.label')}>
+                <Globe />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>{t('lang.label')}</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="end">
+          <DropdownMenuRadioGroup
+            value={i18n.language}
+            onValueChange={(v) => changeLang(v as 'zh' | 'en')}
+          >
+            <DropdownMenuRadioItem value="zh">{t('lang.zh')}</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="en">{t('lang.en')}</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <PreferencesDialog open={preferencesOpen} onOpenChange={setPreferencesOpen} />
       <NewAnimationDialog

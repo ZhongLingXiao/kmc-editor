@@ -6,36 +6,39 @@ import { MousePointer2, Move, Square, Swords, Diamond, Box, Crosshair } from 'lu
 import { useEditorStore } from '../../store/editorStore'
 import { Tool } from '../../types/animation'
 import type { LucideIcon } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 
-const editTools: { id: Tool; label: string; icon: LucideIcon; shortcut?: string }[] = [
-  { id: 'select', label: '选择', icon: MousePointer2, shortcut: 'Q' },
-  { id: 'anchor', label: '精灵对齐', icon: Move, shortcut: 'W' },
+const editTools: { id: Tool; labelKey: string; icon: LucideIcon; shortcut?: string }[] = [
+  { id: 'select', labelKey: 'tool.select', icon: MousePointer2, shortcut: 'Q' },
+  { id: 'anchor', labelKey: 'tool.anchor', icon: Move, shortcut: 'W' },
 ]
 
-const createTools: { id: Tool; label: string; icon: LucideIcon; shortcut?: string }[] = [
-  { id: 'hurtbox', label: '受击框', icon: Square },
-  { id: 'hitbox', label: '攻击框', icon: Swords },
-  { id: 'jcbox', label: 'JC框', icon: Diamond },
-  { id: 'pushbox', label: '推挤框', icon: Box },
-  { id: 'spawnpoint', label: '发射点', icon: Crosshair },
+const createTools: { id: Tool; labelKey: string; icon: LucideIcon; shortcut?: string }[] = [
+  { id: 'hurtbox', labelKey: 'tool.hurtbox', icon: Square },
+  { id: 'hitbox', labelKey: 'tool.hitbox', icon: Swords },
+  { id: 'jcbox', labelKey: 'tool.jcbox', icon: Diamond },
+  { id: 'pushbox', labelKey: 'tool.pushbox', icon: Box },
+  { id: 'spawnpoint', labelKey: 'tool.spawnpoint', icon: Crosshair },
 ]
 
 function ToolButton({
   id,
-  label,
+  labelKey,
   icon: Icon,
   shortcut,
   active,
   onClick,
 }: {
   id: Tool
-  label: string
+  labelKey: string
   icon: LucideIcon
   shortcut?: string
   active: boolean
   onClick: (id: Tool) => void
 }) {
+  const { t } = useTranslation()
+  const label = t(labelKey)
   return (
     <Tooltip>
       <TooltipTrigger asChild>

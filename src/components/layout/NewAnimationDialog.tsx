@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Dialog,
   DialogContent,
@@ -28,6 +29,7 @@ function toSlug(name: string): string {
 }
 
 export default function NewAnimationDialog({ open, onOpenChange, onConfirm, onCancel }: Props) {
+  const { t } = useTranslation()
   const workspaceName = useProjectStore((s) => s.workspaceName)
   const hasWorkspace = useProjectStore((s) => s.hasWorkspace)
   const setWorkspace = useProjectStore((s) => s.setWorkspace)
@@ -88,35 +90,35 @@ export default function NewAnimationDialog({ open, onOpenChange, onConfirm, onCa
     }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>新建动画</DialogTitle>
+          <DialogTitle>{t('dialogNewAnim.title')}</DialogTitle>
           <DialogDescription>
-            输入动画名，将作为 json 文件名与资源路径。建议用英文/数字，如 anim_200。
+            {t('dialogNewAnim.desc')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-3 py-2">
           {/* 工作区路径 */}
           <div className="flex flex-col gap-1.5">
-            <Label>保存位置（工作区）</Label>
+            <Label>{t('dialogNewAnim.location')}</Label>
             <div className="flex items-center gap-2">
               <div className="flex-1 flex items-center gap-1.5 rounded-md border bg-muted px-2 py-1.5 text-xs">
                 <Folder className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className="truncate font-mono text-muted-foreground" title={workspaceName}>
-                  {hasWorkspace ? workspaceName : '未指定'}
+                  {hasWorkspace ? workspaceName : t('dialogNewAnim.noWorkspace')}
                 </span>
               </div>
               <Button variant="outline" size="sm" onClick={handleChangeWorkspace}>
-                更改…
+                {t('dialogNewAnim.change')}
               </Button>
             </div>
             {!hasWorkspace && (
-              <p className="text-xs text-amber-600">未指定将创建时选择文件夹</p>
+              <p className="text-xs text-amber-600">{t('dialogNewAnim.noWorkspaceWarn')}</p>
             )}
           </div>
 
           {/* 动画名 */}
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="anim-name">动画名</Label>
+            <Label htmlFor="anim-name">{t('dialogNewAnim.name')}</Label>
             <Input
               id="anim-name"
               autoFocus
@@ -132,9 +134,8 @@ export default function NewAnimationDialog({ open, onOpenChange, onConfirm, onCa
             />
             {name && (
               <p className="text-xs text-muted-foreground">
-                将创建：<span className="font-mono">{slug}.json</span> 与{' '}
-                <span className="font-mono">sprites/{slug}/</span>
-                {name !== slug && <span className="text-amber-600">（已自动转为安全路径名）</span>}
+                {t('dialogNewAnim.willCreate', { slug })}
+                {name !== slug && <span className="text-amber-600">{t('dialogNewAnim.slugWarn')}</span>}
               </p>
             )}
           </div>
@@ -145,10 +146,10 @@ export default function NewAnimationDialog({ open, onOpenChange, onConfirm, onCa
             if (onCancel) onCancel()
             onOpenChange(false)
           }} disabled={busy}>
-            取消
+            {t('dialogNewAnim.cancel')}
           </Button>
           <Button onClick={handleConfirm} disabled={!slug || busy}>
-            {busy ? '创建中…' : '创建'}
+            {busy ? t('dialogNewAnim.creating') : t('dialogNewAnim.confirm')}
           </Button>
         </DialogFooter>
       </DialogContent>

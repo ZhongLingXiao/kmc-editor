@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useEditorStore } from '../../store/editorStore'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -24,6 +25,7 @@ import type { SpriteSource } from '../../types/animation'
 import SpriteSheetDialog, { type SpriteSheetResult } from './SpriteSheetDialog'
 
 export default function FrameList() {
+  const { t } = useTranslation()
   const animation = useEditorStore((s) => s.animation)
   // 播放时冻结为 -1：不高亮、不显示底部操作栏，且 currentFrameIndex 变化不触发 re-render
   const currentFrameIndex = useEditorStore((s) => (s.isPlaying ? -1 : s.currentFrameIndex))
@@ -83,9 +85,9 @@ export default function FrameList() {
         const newIdx = useEditorStore.getState().currentFrameIndex
         loadSprite(newIdx, info.src, regions[i].x, regions[i].y, regions[i].w, regions[i].h)
       }
-      toast.success(result.mode === 'single' ? '已导入图片' : `已导入 ${regions.length} 帧`)
+      toast.success(result.mode === 'single' ? t('toast.imported') : t('toast.importedN', { count: regions.length }))
     } catch (err) {
-      toast.error((err as Error).message || '图片加载失败')
+      toast.error((err as Error).message || t('toast.loadFailed'))
     }
   }
 
@@ -102,9 +104,9 @@ export default function FrameList() {
         const newIdx = useEditorStore.getState().currentFrameIndex
         loadSprite(newIdx, results[k].src, 0, 0, results[k].w, results[k].h)
       }
-      toast.success(`已导入 ${results.length} 帧`)
+      toast.success(t('toast.importedN', { count: results.length }))
     } catch (err) {
-      toast.error((err as Error).message || '图片加载失败')
+      toast.error((err as Error).message || t('toast.loadFailed'))
     }
   }
 
@@ -130,7 +132,7 @@ export default function FrameList() {
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center justify-between bg-muted/50 px-3 py-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">帧列表</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('frame.title')}</span>
           <ToggleGroup
             type="single"
             value={frameListMode}
@@ -141,7 +143,7 @@ export default function FrameList() {
                 <TooltipTrigger asChild>
                   <span className="flex"><LayoutGrid className="size-3.5" /></span>
                 </TooltipTrigger>
-                <TooltipContent>详细视图</TooltipContent>
+                <TooltipContent>{t('frame.detail')}</TooltipContent>
               </Tooltip>
             </ToggleGroupItem>
             <ToggleGroupItem value="compact" className="h-6 w-6 p-0">
@@ -149,7 +151,7 @@ export default function FrameList() {
                 <TooltipTrigger asChild>
                   <span className="flex"><List className="size-3.5" /></span>
                 </TooltipTrigger>
-                <TooltipContent>紧凑视图</TooltipContent>
+                <TooltipContent>{t('frame.compact')}</TooltipContent>
               </Tooltip>
             </ToggleGroupItem>
           </ToggleGroup>
@@ -160,7 +162,7 @@ export default function FrameList() {
               <Plus />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>添加帧</TooltipContent>
+          <TooltipContent>{t('frame.add')}</TooltipContent>
         </Tooltip>
       </div>
       <Separator />
@@ -176,9 +178,7 @@ export default function FrameList() {
         <div className="p-1.5">
           {animation.elements.length === 0 && (
             <div className="px-3 py-8 text-center text-xs text-muted-foreground">
-              没有帧
-              <br />
-              点击上方 + 添加帧
+              {t('frame.empty')}
             </div>
           )}
           {animation.elements.map((elem, i) => (
@@ -215,7 +215,7 @@ export default function FrameList() {
                       <div className="min-w-0 flex-1 text-xs">
                         <div>{elem.duration} Tick</div>
                         <div className="text-muted-foreground">
-                          {elem.sprite.w > 0 ? `${elem.sprite.w}×${elem.sprite.h}` : '无图片'}
+                          {elem.sprite.w > 0 ? `${elem.sprite.w}×${elem.sprite.h}` : t('frame.noImage')}
                         </div>
                       </div>
                     </>
@@ -224,7 +224,7 @@ export default function FrameList() {
                       <span className="w-5 shrink-0 text-muted-foreground">{i}</span>
                       <span>{elem.duration}t</span>
                       <span className="text-muted-foreground">
-                        {elem.sprite.w > 0 ? `${elem.sprite.w}×${elem.sprite.h}` : '无图'}
+                        {elem.sprite.w > 0 ? `${elem.sprite.w}×${elem.sprite.h}` : t('frame.noImage')}
                       </span>
                     </>
                   )}
@@ -232,66 +232,66 @@ export default function FrameList() {
               </ContextMenuTrigger>
               <ContextMenuContent>
                 <ContextMenuItem onClick={() => startLoadSprite(i)}>
-                  <ImageUp /> 载入图
+                  <ImageUp /> {t('frame.loadSprite')}
                 </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem onClick={() => insertFrame(i, i)}>
-                  <Plus /> 在前面插入帧
+                  <Plus /> {t('frame.insertBefore')}
                 </ContextMenuItem>
                 <ContextMenuItem onClick={() => insertFrame(i + 1, i)}>
-                  <Plus /> 在后面插入帧
+                  <Plus /> {t('frame.insertAfter')}
                 </ContextMenuItem>
                 <ContextMenuItem onClick={() => duplicateFrame(i)}>
-                  <Copy /> 复制帧
+                  <Copy /> {t('frame.copy')}
                 </ContextMenuItem>
                 <ContextMenuSub>
                   <ContextMenuSubTrigger>
-                    <CopyPlus /> 应用此帧信息到…
+                    <CopyPlus /> {t('frame.applyTo')}
                   </ContextMenuSubTrigger>
                   <ContextMenuSubContent>
                     <ContextMenuItem
                       onClick={() => {
                         const targets = selectedFrameIndices.filter((idx) => idx !== i)
                         if (targets.length === 0) {
-                          toast.warning('请先按住 Ctrl/Shift 多选其他帧')
+                          toast.warning(t('frame.applySelectFirst'))
                           return
                         }
                         applyFrameToFrames(i, targets)
-                        toast.success(`已应用到 ${targets.length} 个选中帧`)
+                        toast.success(t('frame.appliedN', { count: targets.length }))
                       }}
                       disabled={selectedFrameIndices.filter((idx) => idx !== i).length === 0}
                     >
-                      选中帧
+                      {t('frame.applySelected')}
                     </ContextMenuItem>
                     <ContextMenuItem
                       onClick={() => {
                         const targets = animation.elements.map((_, idx) => idx).filter((idx) => idx !== i)
                         applyFrameToFrames(i, targets)
-                        toast.success(`已应用到所有其他帧（${targets.length}）`)
+                        toast.success(t('frame.appliedAllOthers', { count: targets.length }))
                       }}
                       disabled={animation.elements.length <= 1}
                     >
-                      所有其他帧
+                      {t('frame.applyOthers')}
                     </ContextMenuItem>
                     <ContextMenuItem
                       onClick={() => {
                         const targets = animation.elements.map((_, idx) => idx).filter((idx) => idx > i)
                         if (targets.length === 0) return
                         applyFrameToFrames(i, targets)
-                        toast.success(`已应用到 ${targets.length} 个后续帧`)
+                        toast.success(t('frame.appliedFollowing', { count: targets.length }))
                       }}
                       disabled={i >= animation.elements.length - 1}
                     >
-                      所有后续帧
+                      {t('frame.applyFollowing')}
                     </ContextMenuItem>
                   </ContextMenuSubContent>
                 </ContextMenuSub>
                 <ContextMenuSeparator />
                 <ContextMenuItem onClick={() => moveFrame(i, i - 1)} disabled={i === 0}>
-                  <ArrowUp /> 上移帧
+                  <ArrowUp /> {t('frame.moveUp')}
                 </ContextMenuItem>
                 <ContextMenuItem onClick={() => moveFrame(i, i + 1)} disabled={i === animation.elements.length - 1}>
-                  <ArrowDown /> 下移帧
+                  <ArrowDown /> {t('frame.moveDown')}
                 </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem
@@ -299,7 +299,7 @@ export default function FrameList() {
                   disabled={animation.elements.length <= 1}
                   className="text-destructive focus:text-destructive"
                 >
-                  <Trash2 /> 删除帧
+                  <Trash2 /> {t('frame.delete')}
                 </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>
