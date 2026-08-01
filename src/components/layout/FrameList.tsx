@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { useEditorStore } from '../../store/editorStore'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -19,7 +19,9 @@ import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { importImageToProject } from '../../lib/image'
-import { useSpriteBlobUrl } from '../../lib/spriteResolver'
+import { useSprite } from '../../lib/spriteResolver'
+import type { SpriteSource } from '../../types/animation'
+import SpriteSheetDialog, { type SpriteSheetResult } from './SpriteSheetDialog'
 
 export default function FrameList() {
   const animation = useEditorStore((s) => s.animation)
@@ -41,22 +43,42 @@ export default function FrameList() {
 
   const spriteInputRef = useRef<HTMLInputElement>(null)
   const pendingFrameIndex = useRef<number>(-1)
+  const [spriteDialogFile, setSpriteDialogFile] = useState<File | null>(null)
+  const [spriteDialogOpen, setSpriteDialogOpen] = useState(false)
 
   const handleLoadSprite = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || pendingFrameIndex.current < 0) return
     e.target.value = ''
-    try {
-      const info = await importImageToProject(file)
-      loadSprite(pendingFrameIndex.current, info.src, info.w, info.h)
-    } catch (err) {
-      toast.error((err as Error).message || '图片加载失败')
-    }
+    setSpriteDialogFile(file)
+    setSpriteDialogOpen(true)
   }
 
   const startLoadSprite = (index: number) => {
     pendingFrameIndex.current = index
     spriteInputRef.current?.click()
+  }
+
+  // SpriteSheetDialog 确认：单帧替换当前帧；多帧第一帧替换当前帧，其余追加末尾
+  const handleSpriteConfirm = async (result: SpriteSheetResult) => {
+    const file = spriteDialogFile
+    const idx = pendingFrameIndex.current
+    if (!file || idx < 0) return
+    try {
+      const info = await importImageToProject(file)
+      const regions = result.regions
+      const first = regions[0]
+      loadSprite(idx, info.src, first.x, first.y, first.w, first.h)
+      for (let i = 1; i < regions.length; i++) {
+        const lastIdx = useEditorStore.getState().animation.elements.length - 1
+        addFrame(lastIdx)
+        const newIdx = useEditorStore.getState().currentFrameIndex
+        loadSprite(newIdx, info.src, regions[i].x, regions[i].y, regions[i].w, regions[i].h)
+      }
+      toast.success(result.mode === 'single' ? '已导入图片' : `已导入 ${regions.length} 帧`)
+    } catch (err) {
+      toast.error((err as Error).message || '图片加载失败')
+    }
   }
 
   const handleFrameClick = (i: number, e: React.MouseEvent) => {
@@ -142,13 +164,9 @@ export default function FrameList() {
                     e.stopPropagation()
                     const file = e.dataTransfer.files[0]
                     if (!file || !file.type.startsWith('image/')) return
-                    try {
-                      const info = await importImageToProject(file)
-                      useEditorStore.getState().loadSprite(i, info.src, info.w, info.h)
-                      toast.success(`已替换帧 ${i} 的图片`)
-                    } catch (err) {
-                      toast.error((err as Error).message || '图片加载失败')
-                    }
+                    pendingFrameIndex.current = i
+                    setSpriteDialogFile(file)
+                    setSpriteDialogOpen(true)
                   }}
                   onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy' }}
                   className={cn(
@@ -161,7 +179,7 @@ export default function FrameList() {
                   {frameListMode === 'detail' ? (
                     <>
                       <span className="w-5 shrink-0 text-xs text-muted-foreground">{i}</span>
-                      <SpriteThumb src={elem.sprite.src} />
+                      <SpriteThumb sprite={elem.sprite} />
                       <div className="min-w-0 flex-1 text-xs">
                         <div>{elem.duration} Tick</div>
                         <div className="text-muted-foreground">
@@ -256,22 +274,31 @@ export default function FrameList() {
           ))}
         </div>
       </ScrollArea>
+      <SpriteSheetDialog
+        open={spriteDialogOpen}
+        onOpenChange={setSpriteDialogOpen}
+        file={spriteDialogFile}
+        onConfirm={handleSpriteConfirm}
+      />
     </div>
   )
 }
 
 /** 帧缩略图：按 src 从工程目录解析出 blobURL 显示。未加载时显示占位。 */
-function SpriteThumb({ src }: { src: string }) {
-  const blobUrl = useSpriteBlobUrl(src)
-  return (
-    <div
-      className="size-9 shrink-0 rounded border bg-muted"
-      style={{
-        backgroundImage: blobUrl ? `url(${blobUrl})` : 'none',
-        backgroundSize: 'contain',
-        backgroundRepeat: 'no-repeat',
-        backgroundPosition: 'center',
-      }}
-    />
-  )
+function SpriteThumb({ sprite }: { sprite: SpriteSource }) {
+  const img = useSprite(sprite.src)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.clearRect(0, 0, 36, 36)
+    if (!img || !sprite.w || !sprite.h) return
+    const scale = Math.min(36 / sprite.w, 36 / sprite.h)
+    const dw = sprite.w * scale
+    const dh = sprite.h * scale
+    ctx.drawImage(img, sprite.x, sprite.y, sprite.w, sprite.h, (36 - dw) / 2, (36 - dh) / 2, dw, dh)
+  }, [img, sprite.src, sprite.x, sprite.y, sprite.w, sprite.h])
+  return <canvas ref={canvasRef} width={36} height={36} className="size-9 shrink-0 rounded border bg-muted" />
 }

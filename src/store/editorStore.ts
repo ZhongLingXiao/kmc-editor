@@ -19,7 +19,7 @@ function genId(): string {
 function createEmptyElement(index: number): AnimElement {
   return {
     index,
-    sprite: { src: '', w: 0, h: 0 },
+    sprite: { src: '', x: 0, y: 0, w: 0, h: 0 },
     duration: 1,
     offset: { x: 0, y: 0 },
     hurtboxes: [],
@@ -215,7 +215,7 @@ interface EditorState {
   updateFrame: (index: number, data: Partial<AnimElement>) => void
   /** 将源帧的轴点与四类框（受击/攻击/JC/发射点）覆盖应用到目标帧，保留目标帧的 sprite 与 duration */
   applyFrameToFrames: (sourceIndex: number, targetIndices: number[]) => void
-  loadSprite: (index: number, src: string, w: number, h: number) => void
+  loadSprite: (index: number, src: string, x: number, y: number, w: number, h: number) => void
   // 移动播放头到指定 tick（currentFrameIndex 随之派生）
   setCurrentTick: (tick: number) => void
 
@@ -368,7 +368,7 @@ export const useEditorStore = create<EditorState>()(
               ? {
                   ...prev,
                   index: newIndex,
-                  sprite: { src: prev.sprite.src, w: prev.sprite.w, h: prev.sprite.h },
+                  sprite: { src: prev.sprite.src, x: prev.sprite.x, y: prev.sprite.y, w: prev.sprite.w, h: prev.sprite.h },
                   offset: inheritOffset ? prev.offset : { x: 0, y: 0 },
                   hurtboxes: inheritBoxes ? prev.hurtboxes.map((b) => ({ ...b, id: genId() })) : [],
                   hitboxes: inheritBoxes ? prev.hitboxes.map((b) => ({ ...b, id: genId() })) : [],
@@ -419,7 +419,7 @@ export const useEditorStore = create<EditorState>()(
               ? {
                   ...src,
                   index: clampedAt,
-                  sprite: { src: src.sprite.src, w: src.sprite.w, h: src.sprite.h },
+                  sprite: { src: src.sprite.src, x: src.sprite.x, y: src.sprite.y, w: src.sprite.w, h: src.sprite.h },
                   offset: inheritOffset ? src.offset : { x: 0, y: 0 },
                   hurtboxes: inheritBoxes ? src.hurtboxes.map((b) => ({ ...b, id: genId() })) : [],
                   hitboxes: inheritBoxes ? src.hitboxes.map((b) => ({ ...b, id: genId() })) : [],
@@ -546,7 +546,7 @@ export const useEditorStore = create<EditorState>()(
           }
         }),
 
-      loadSprite: (index, src, w, h) =>
+      loadSprite: (index, src, x, y, w, h) =>
         set((s) => {
           const elements = [...s.animation.elements]
           if (!elements[index]) return s
@@ -556,7 +556,7 @@ export const useEditorStore = create<EditorState>()(
           const isFirstLoad = old.offset.x === 0 && old.offset.y === 0
           elements[index] = {
             ...old,
-            sprite: { src, w, h },
+            sprite: { src, x, y, w, h },
             offset: isFirstLoad ? { x: Math.round(w / 2), y: h } : old.offset,
           }
           return { animation: { ...s.animation, elements } }

@@ -13,10 +13,10 @@ function normalizeShowLayers(sl: Partial<Record<string, boolean>> | undefined): 
 export function buildExportData(animation: AnimationData, includeEditor: boolean = true): Record<string, unknown> {
   const totalTicks = animation.elements.reduce((sum, e) => sum + e.duration, 0)
   const { editor, ...rest } = animation
-  // 清理 sprite 上的临时迁移字段，只保留 src/w/h
+  // 清理 sprite 上的临时迁移字段，只保留 src/x/y/w/h
   const cleanElements = rest.elements.map((el) => {
     const s = el.sprite as any
-    return { ...el, sprite: { src: s.src ?? '', w: s.w ?? 0, h: s.h ?? 0 } }
+    return { ...el, sprite: { src: s.src ?? '', x: s.x ?? 0, y: s.y ?? 0, w: s.w ?? 0, h: s.h ?? 0 } }
   })
   const base = { ...rest, elements: cleanElements, totalTicks }
   if (!includeEditor || !editor) return base
@@ -51,11 +51,11 @@ export function normalizeAnimationData(data: AnimationData): AnimationData {
     const sprite = el.sprite as any
     let newSprite
     if (sprite.data && !sprite.src) {
-      newSprite = { src: '', w: sprite.w ?? 0, h: sprite.h ?? 0, _legacyData: sprite.data, _legacyPath: sprite.path }
+      newSprite = { src: '', x: 0, y: 0, w: sprite.w ?? 0, h: sprite.h ?? 0, _legacyData: sprite.data, _legacyPath: sprite.path }
     } else if (sprite.src) {
-      newSprite = { src: sprite.src, w: sprite.w ?? 0, h: sprite.h ?? 0 }
+      newSprite = { src: sprite.src, x: sprite.x ?? 0, y: sprite.y ?? 0, w: sprite.w ?? 0, h: sprite.h ?? 0 }
     } else {
-      newSprite = { src: '', w: 0, h: 0 }
+      newSprite = { src: '', x: 0, y: 0, w: 0, h: 0 }
     }
     return {
       ...el,

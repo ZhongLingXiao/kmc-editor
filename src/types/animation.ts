@@ -4,9 +4,13 @@
 export interface SpriteSource {
   /** 相对工程根的路径，如 "sprites/stand/frame_0.png" */
   src: string;
-  /** 图片宽度 */
+  /** 在 sheet 内的 X 偏移（像素）；单帧/整图导入时为 0 */
+  x: number;
+  /** 在 sheet 内的 Y 偏移（像素）；单帧/整图导入时为 0 */
+  y: number;
+  /** 帧宽度（sheet 模式下为单帧宽，单帧模式为整图宽） */
   w: number;
-  /** 图片高度 */
+  /** 帧高度（sheet 模式下为单帧高，单帧模式为整图高） */
   h: number;
 }
 

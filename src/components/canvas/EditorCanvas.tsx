@@ -402,10 +402,11 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
     return (
       <KonvaImage
         image={img}
+        crop={{ x: elem.sprite.x, y: elem.sprite.y, width: elem.sprite.w, height: elem.sprite.h }}
         x={x}
         y={y}
-        width={img.width * scale}
-        height={img.height * scale}
+        width={elem.sprite.w * scale}
+        height={elem.sprite.h * scale}
         scaleX={flipped ? -1 : 1}
         opacity={opacity}
         listening={canAlign}
@@ -487,13 +488,14 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
       if (img) {
         const x = flipped ? originX + elem.offset.x * scale : originX - elem.offset.x * scale
         const y = originY - elem.offset.y * scale
-        const w = img.width * scale
-        const h = img.height * scale
+        const w = elem.sprite.w * scale
+        const h = elem.sprite.h * scale
         nodes.push(
           <Group key="sprite-group" opacity={opacity} listening={false}>
             <KonvaImage
               key="sprite-img"
               image={img}
+              crop={{ x: elem.sprite.x, y: elem.sprite.y, width: elem.sprite.w, height: elem.sprite.h }}
               x={x}
               y={y}
               width={w}

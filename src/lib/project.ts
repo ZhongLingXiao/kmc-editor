@@ -331,14 +331,14 @@ export async function migrateBase64Sprites(
     const el = animation.elements[i]
     // 新格式（已有 src）直接保留
     if ((el.sprite as any).src && !(el.sprite as any).data) {
-      elements.push(el)
+      elements.push({ ...el, sprite: { ...el.sprite, x: el.sprite.x ?? 0, y: el.sprite.y ?? 0 } })
       continue
     }
     // 旧格式（有 data base64）→ 写盘
     const oldSprite = el.sprite as any
     if (!oldSprite.data) {
       // 无图帧
-      elements.push({ ...el, sprite: { src: '', w: oldSprite.w ?? 0, h: oldSprite.h ?? 0 } })
+      elements.push({ ...el, sprite: { src: '', x: 0, y: 0, w: oldSprite.w ?? 0, h: oldSprite.h ?? 0 } })
       continue
     }
     const blob = dataUrlToBlob(oldSprite.data)
@@ -349,7 +349,7 @@ export async function migrateBase64Sprites(
     const writable = await dir.getFileHandle(name, { create: true }).then((h) => h.createWritable())
     await writable.write(await blob.arrayBuffer())
     await writable.close()
-    const sprite: SpriteSource = { src: `sprites/${animSlug}/${name}`, w: oldSprite.w, h: oldSprite.h }
+    const sprite: SpriteSource = { src: `sprites/${animSlug}/${name}`, x: 0, y: 0, w: oldSprite.w, h: oldSprite.h }
     elements.push({ ...el, sprite })
   }
   return { ...animation, elements }
