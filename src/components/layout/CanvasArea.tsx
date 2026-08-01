@@ -18,7 +18,7 @@ import {
   ContextMenuSubContent,
 } from '@/components/ui/context-menu'
 import { spaceState } from '../../lib/space-pan'
-import { importImageToProject } from '../../lib/image'
+import { importImageToProject, importSpritesBatch } from '../../lib/image'
 import { MousePointer2, Move, Square, Swords, Diamond, Box, Crosshair } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -45,7 +45,7 @@ export default function CanvasArea() {
   const [facing, setFacing] = useState<'right' | 'left'>('right')
 
   // 拖图到空场景时暂存待导入的文件，创建动画后导入
-  const [pendingDropFile, setPendingDropFile] = useState<File | null>(null)
+  const [pendingDropFiles, setPendingDropFiles] = useState<File[]>([])
   const [newAnimOpen, setNewAnimOpen] = useState(false)
   // 精灵图切分对话框
   const [spriteDialogFile, setSpriteDialogFile] = useState<File | null>(null)
@@ -108,32 +108,76 @@ export default function CanvasArea() {
     if (isPanning) setIsPanning(false)
   }
 
-  // 拖拽图片到画布：没有动画在编辑 → 弹窗创建动画；否则 → 弹切分对话框
+  // 决定第一帧索引：当前帧无图则复用当前帧，否则新建帧
+  const acquireFirstFrameIndex = (): number => {
+    const store = useEditorStore.getState()
+    const cur = store.currentFrameIndex
+    const curFrame = cur >= 0 ? store.animation.elements[cur] : null
+    if (curFrame && curFrame.sprite.w === 0) return cur
+    const lastIdx = store.animation.elements.length - 1
+    addFrame(lastIdx)
+    return useEditorStore.getState().currentFrameIndex
+  }
+
+  // 追加一帧到末尾并导入，返回新帧索引
+  const appendFrameAndLoad = (src: string, x: number, y: number, w: number, h: number) => {
+    const lastIdx = useEditorStore.getState().animation.elements.length - 1
+    addFrame(lastIdx)
+    const newIdx = useEditorStore.getState().currentFrameIndex
+    useEditorStore.getState().loadSprite(newIdx, src, x, y, w, h)
+  }
+
+  // 批量导入多张图（每张一帧）：第一帧复用当前空帧或新建，其余追加末尾
+  const importBatchToFrames = async (files: File[]) => {
+    try {
+      const results = await importSpritesBatch(files)
+      if (results.length === 0) return
+      const firstIdx = acquireFirstFrameIndex()
+      const first = results[0]
+      useEditorStore.getState().loadSprite(firstIdx, first.src, 0, 0, first.w, first.h)
+      for (let k = 1; k < results.length; k++) {
+        appendFrameAndLoad(results[k].src, 0, 0, results[k].w, results[k].h)
+      }
+      toast.success(`已导入 ${results.length} 帧`)
+    } catch (err) {
+      toast.error((err as Error).message || '图片加载失败')
+    }
+  }
+
+  // 拖拽图片到画布：没有动画在编辑 → 弹窗创建动画；单张 → 切分对话框；多张 → 批量导入
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
-    const file = e.dataTransfer.files[0]
-    if (!file || !file.type.startsWith('image/')) return
+    const imgs = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'))
+    if (imgs.length === 0) return
     // 只有当前没有动画在编辑时才提示创建动画（不看是否有图片帧）
     if (!useProjectStore.getState().currentAnimId) {
-      setPendingDropFile(file)
+      setPendingDropFiles(imgs)
       setNewAnimOpen(true)
       return
     }
-    setSpriteDialogFile(file)
-    setSpriteDialogOpen(true)
+    if (imgs.length === 1) {
+      setSpriteDialogFile(imgs[0])
+      setSpriteDialogOpen(true)
+    } else {
+      await importBatchToFrames(imgs)
+    }
   }
 
-  // 拖图触发的创建动画确认：创建动画后弹切分对话框导入暂存的图片
+  // 拖图触发的创建动画确认：创建动画后导入暂存的图片
   const handlePendingDropConfirm = async (name: string) => {
     await useProjectStore.getState().createAnimation(name)
     toast.success(`已创建动画 ${name}`)
-    const file = pendingDropFile
-    setPendingDropFile(null)
-    if (!file) return
+    const files = pendingDropFiles
+    setPendingDropFiles([])
+    if (files.length === 0) return
     // 新建动画无帧，先创建第一帧再导入
     if (useEditorStore.getState().currentFrameIndex < 0) addFrame(-1)
-    setSpriteDialogFile(file)
-    setSpriteDialogOpen(true)
+    if (files.length === 1) {
+      setSpriteDialogFile(files[0])
+      setSpriteDialogOpen(true)
+    } else {
+      await importBatchToFrames(files)
+    }
   }
 
   // SpriteSheetDialog 确认：单帧导入当前帧/新建帧；多帧第一帧同上，其余追加末尾
@@ -143,26 +187,11 @@ export default function CanvasArea() {
     try {
       const info = await importImageToProject(file)
       const regions = result.regions
-      const store = useEditorStore.getState()
-      const cur = store.currentFrameIndex
-      const curFrame = cur >= 0 ? store.animation.elements[cur] : null
-      // 第一帧：当前帧无图 → 导入当前帧；否则新建帧
-      let firstIdx: number
-      if (curFrame && curFrame.sprite.w === 0) {
-        firstIdx = cur
-      } else {
-        const lastIdx = store.animation.elements.length - 1
-        addFrame(lastIdx)
-        firstIdx = useEditorStore.getState().currentFrameIndex
-      }
+      const firstIdx = acquireFirstFrameIndex()
       const first = regions[0]
       useEditorStore.getState().loadSprite(firstIdx, info.src, first.x, first.y, first.w, first.h)
-      // 其余追加末尾
       for (let i = 1; i < regions.length; i++) {
-        const lastIdx = useEditorStore.getState().animation.elements.length - 1
-        addFrame(lastIdx)
-        const newIdx = useEditorStore.getState().currentFrameIndex
-        useEditorStore.getState().loadSprite(newIdx, info.src, regions[i].x, regions[i].y, regions[i].w, regions[i].h)
+        appendFrameAndLoad(info.src, regions[i].x, regions[i].y, regions[i].w, regions[i].h)
       }
       toast.success(result.mode === 'single' ? '已导入图片' : `已导入 ${regions.length} 帧`)
     } catch (err) {
@@ -267,7 +296,7 @@ export default function CanvasArea() {
         open={newAnimOpen}
         onOpenChange={setNewAnimOpen}
         onConfirm={handlePendingDropConfirm}
-        onCancel={() => setPendingDropFile(null)}
+        onCancel={() => setPendingDropFiles([])}
       />
       <SpriteSheetDialog
         open={spriteDialogOpen}

@@ -29,3 +29,25 @@ export async function importImageToProject(
   const anim = useEditorStore.getState().animation
   return importSpriteFile(rootHandle, file, anim.id, fileHandle)
 }
+
+/** 过滤图片并按文件名自然排序（walk_1 排在 walk_10 之前） */
+export function sortImageFiles(files: File[]): File[] {
+  return files
+    .filter((f) => f.type.startsWith('image/'))
+    .sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+    )
+}
+
+/**
+ * 批量导入多张图片（单帧序列）：过滤+排序后逐张导入工作区，返回结果列表。
+ * 调用方负责按结果创建帧（第一帧复用当前空帧或新建，其余追加末尾）。
+ */
+export async function importSpritesBatch(files: File[]): Promise<ImportResult[]> {
+  const imgs = sortImageFiles(files)
+  const results: ImportResult[] = []
+  for (const f of imgs) {
+    results.push(await importImageToProject(f))
+  }
+  return results
+}

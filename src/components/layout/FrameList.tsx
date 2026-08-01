@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { importImageToProject } from '../../lib/image'
+import { importImageToProject, importSpritesBatch } from '../../lib/image'
 import { useSprite } from '../../lib/spriteResolver'
 import type { SpriteSource } from '../../types/animation'
 import SpriteSheetDialog, { type SpriteSheetResult } from './SpriteSheetDialog'
@@ -47,11 +47,19 @@ export default function FrameList() {
   const [spriteDialogOpen, setSpriteDialogOpen] = useState(false)
 
   const handleLoadSprite = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || pendingFrameIndex.current < 0) return
+    const files = e.target.files
+    if (!files || files.length === 0 || pendingFrameIndex.current < 0) return
     e.target.value = ''
-    setSpriteDialogFile(file)
-    setSpriteDialogOpen(true)
+    const imgs = Array.from(files).filter((f) => f.type.startsWith('image/'))
+    if (imgs.length === 0) return
+    if (imgs.length === 1) {
+      // 单张 → 弹切分对话框（单帧/多帧切分）
+      setSpriteDialogFile(imgs[0])
+      setSpriteDialogOpen(true)
+      return
+    }
+    // 多张 → 批量导入（每张一帧）
+    await importBatchToFrames(imgs, pendingFrameIndex.current)
   }
 
   const startLoadSprite = (index: number) => {
@@ -76,6 +84,25 @@ export default function FrameList() {
         loadSprite(newIdx, info.src, regions[i].x, regions[i].y, regions[i].w, regions[i].h)
       }
       toast.success(result.mode === 'single' ? '已导入图片' : `已导入 ${regions.length} 帧`)
+    } catch (err) {
+      toast.error((err as Error).message || '图片加载失败')
+    }
+  }
+
+  // 批量导入多张图（每张一帧）：第一帧导入到 firstIdx，其余追加末尾
+  const importBatchToFrames = async (files: File[], firstIdx: number) => {
+    try {
+      const results = await importSpritesBatch(files)
+      if (results.length === 0) return
+      const first = results[0]
+      loadSprite(firstIdx, first.src, 0, 0, first.w, first.h)
+      for (let k = 1; k < results.length; k++) {
+        const lastIdx = useEditorStore.getState().animation.elements.length - 1
+        addFrame(lastIdx)
+        const newIdx = useEditorStore.getState().currentFrameIndex
+        loadSprite(newIdx, results[k].src, 0, 0, results[k].w, results[k].h)
+      }
+      toast.success(`已导入 ${results.length} 帧`)
     } catch (err) {
       toast.error((err as Error).message || '图片加载失败')
     }
@@ -141,6 +168,7 @@ export default function FrameList() {
         ref={spriteInputRef}
         type="file"
         accept="image/*"
+        multiple
         className="hidden"
         onChange={handleLoadSprite}
       />
@@ -162,11 +190,15 @@ export default function FrameList() {
                   onDrop={async (e) => {
                     e.preventDefault()
                     e.stopPropagation()
-                    const file = e.dataTransfer.files[0]
-                    if (!file || !file.type.startsWith('image/')) return
+                    const imgs = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'))
+                    if (imgs.length === 0) return
                     pendingFrameIndex.current = i
-                    setSpriteDialogFile(file)
-                    setSpriteDialogOpen(true)
+                    if (imgs.length === 1) {
+                      setSpriteDialogFile(imgs[0])
+                      setSpriteDialogOpen(true)
+                    } else {
+                      await importBatchToFrames(imgs, i)
+                    }
                   }}
                   onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy' }}
                   className={cn(
