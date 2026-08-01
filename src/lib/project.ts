@@ -58,6 +58,74 @@ export async function clearWorkspaceHandle(): Promise<void> {
 }
 
 // ============================================================================
+// 近期打开文件列表（跨会话恢复）
+// 每条记录连带存它的工作区目录句柄，打开时一并恢复，确保图片相对路径可解析。
+// ============================================================================
+
+const RECENT_FILES_KEY = 'recent-files'
+/** 近期列表最大条数 */
+export const RECENT_FILES_MAX = 10
+
+export interface RecentFile {
+  /** 动画 json 文件句柄 */
+  fileHandle: FileSystemFileHandle
+  /** 文件名，如 anim_200.json */
+  fileName: string
+  /** 该文件所属的工作区目录句柄（打开时一并恢复） */
+  workspaceHandle: FileSystemDirectoryHandle
+  /** 工作区目录名，用于菜单展示区分同名文件 */
+  workspaceName: string
+  /** 最后打开时间戳（ms） */
+  lastOpenedAt: number
+}
+
+/** 读取近期打开文件列表 */
+export async function loadRecentFiles(): Promise<RecentFile[]> {
+  const db = await openDb()
+  const list = await new Promise<RecentFile[]>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readonly')
+    const req = tx.objectStore(STORE_NAME).get(RECENT_FILES_KEY)
+    req.onsuccess = () => resolve((req.result as RecentFile[]) ?? [])
+    req.onerror = () => reject(req.error)
+  })
+  db.close()
+  return list
+}
+
+/** 写入近期打开文件列表（整体覆盖） */
+export async function saveRecentFiles(list: RecentFile[]): Promise<void> {
+  const db = await openDb()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite')
+    tx.objectStore(STORE_NAME).put(list, RECENT_FILES_KEY)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+  db.close()
+}
+
+// ============================================================================
+// 句柄权限（File System Access API）
+// 持久化的句柄在新会话首次使用前需重新授权；requestPermission 必须在用户手势中调用。
+// ============================================================================
+
+/** 请求句柄权限，返回是否可用。不支持权限 API 时假设可用。 */
+export async function ensurePermission(
+  handle: FileSystemHandle,
+  mode: 'read' | 'readwrite'
+): Promise<boolean> {
+  const h = handle as any
+  if (!h.queryPermission) return true
+  const perm = await h.queryPermission({ mode })
+  if (perm === 'granted') return true
+  if (perm === 'prompt') {
+    const req = await h.requestPermission({ mode })
+    return req === 'granted'
+  }
+  return false // denied
+}
+
+// ============================================================================
 // 工程目录文件操作
 // ============================================================================
 

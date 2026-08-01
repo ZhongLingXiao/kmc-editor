@@ -1,4 +1,4 @@
-import { importSpriteFile } from './project'
+import { importSpriteFile, ensurePermission } from './project'
 import { useProjectStore } from '../store/projectStore'
 import { useEditorStore } from '../store/editorStore'
 
@@ -20,6 +20,11 @@ export async function importImageToProject(
   const rootHandle = useProjectStore.getState().workspaceHandle
   if (!rootHandle) {
     throw new Error('请先设定工作区目录')
+  }
+  // 启动恢复的工作区可能尚未授权，首次导入时请求权限
+  const ok = await ensurePermission(rootHandle, 'readwrite')
+  if (!ok) {
+    throw new Error('工作区权限被拒绝')
   }
   const anim = useEditorStore.getState().animation
   return importSpriteFile(rootHandle, file, anim.id, fileHandle)

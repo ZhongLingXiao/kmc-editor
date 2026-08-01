@@ -10,13 +10,17 @@ import {
   MenubarSeparator,
   MenubarCheckboxItem,
   MenubarShortcut,
+  MenubarSub,
+  MenubarSubTrigger,
+  MenubarSubContent,
 } from '@/components/ui/menubar'
-import { Undo2, Redo2 } from 'lucide-react'
+import { Undo2, Redo2, Clock, FilePlus2, FolderOpen, Save, SaveAll, FileInput, Download, Settings, Maximize } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useEditorStore } from '../../store/editorStore'
 import { useProjectStore } from '../../store/projectStore'
 import { exportAnimation, importAnimation, buildExportData } from '../../utils/export'
-import { saveAnimJson, migrateBase64Sprites, needsMigration } from '../../lib/project'
+import { saveAnimJson, migrateBase64Sprites, needsMigration, ensurePermission } from '../../lib/project'
+import type { RecentFile } from '../../lib/project'
 import { toast } from 'sonner'
 import { useRef, useState, useEffect } from 'react'
 import PreferencesDialog from './PreferencesDialog'
@@ -36,6 +40,10 @@ export default function MenuBar() {
   const createAnimation = useProjectStore((s) => s.createAnimation)
   const openAnimation = useProjectStore((s) => s.openAnimation)
   const restoreWorkspace = useProjectStore((s) => s.restoreWorkspace)
+  const recentFiles = useProjectStore((s) => s.recentFiles)
+  const openRecentFile = useProjectStore((s) => s.openRecentFile)
+  const removeRecentFile = useProjectStore((s) => s.removeRecentFile)
+  const clearRecentFiles = useProjectStore((s) => s.clearRecentFiles)
 
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -93,10 +101,29 @@ export default function MenuBar() {
     setOpenMenu(null)
   }
 
+  const handleOpenRecent = async (item: RecentFile) => {
+    try {
+      await openRecentFile(item)
+      toast.success(`已打开 ${item.fileName}`)
+    } catch (err) {
+      toast.error(`无法打开 ${item.fileName}：${(err as Error).message}`)
+      // 句柄可能已失效（文件被删/移动），从列表移除
+      await removeRecentFile(item.fileHandle)
+    }
+    setOpenMenu(null)
+  }
+
   const handleSave = async () => {
     const workspaceHandle = useProjectStore.getState().workspaceHandle
     if (!workspaceHandle) {
       toast.error('请先设定工作区目录（新建动画时选择）')
+      setOpenMenu(null)
+      return
+    }
+    // 启动恢复的工作区可能尚未授权，首次保存时请求权限
+    const ok = await ensurePermission(workspaceHandle, 'readwrite')
+    if (!ok) {
+      toast.error('工作区权限被拒绝，无法保存')
       setOpenMenu(null)
       return
     }
@@ -174,21 +201,59 @@ export default function MenuBar() {
           <MenubarTrigger>文件</MenubarTrigger>
           <MenubarContent>
             <MenubarItem id="menu-new-project" onClick={handleNew}>
-              新建动画… <MenubarShortcut>Ctrl+N</MenubarShortcut>
+              <FilePlus2 /> 新建动画… <MenubarShortcut>Ctrl+N</MenubarShortcut>
             </MenubarItem>
             <MenubarItem id="menu-open-project" onClick={handleOpen}>
-              打开动画… <MenubarShortcut>Ctrl+O</MenubarShortcut>
+              <FolderOpen /> 打开动画… <MenubarShortcut>Ctrl+O</MenubarShortcut>
             </MenubarItem>
+            <MenubarSub>
+              <MenubarSubTrigger>
+                <Clock className="size-4 mr-2 text-muted-foreground" /> 近期打开
+              </MenubarSubTrigger>
+              <MenubarSubContent>
+                {recentFiles.length === 0 ? (
+                  <MenubarItem disabled>暂无记录</MenubarItem>
+                ) : (
+                  recentFiles.map((item, idx) => (
+                    <MenubarItem
+                      key={`${item.lastOpenedAt}-${idx}`}
+                      onClick={() => handleOpenRecent(item)}
+                      title={`${item.workspaceName}/${item.fileName}`}
+                    >
+                      <span className="truncate font-mono">{item.fileName}</span>
+                      <span className="ml-auto pl-2 text-xs text-muted-foreground">
+                        {item.workspaceName}
+                      </span>
+                    </MenubarItem>
+                  ))
+                )}
+                {recentFiles.length > 0 && (
+                  <>
+                    <MenubarSeparator />
+                    <MenubarItem
+                      onClick={() => { void clearRecentFiles(); setOpenMenu(null) }}
+                      className="text-muted-foreground"
+                    >
+                      清空列表
+                    </MenubarItem>
+                  </>
+                )}
+              </MenubarSubContent>
+            </MenubarSub>
             <MenubarSeparator />
             <MenubarItem id="menu-save" onClick={handleSave} disabled={!hasWorkspace}>
-              保存 <MenubarShortcut>Ctrl+S</MenubarShortcut>
+              <Save /> 保存 <MenubarShortcut>Ctrl+S</MenubarShortcut>
             </MenubarItem>
             <MenubarItem id="menu-saveas" onClick={handleSaveAs}>
-              另存为… <MenubarShortcut>Ctrl+Shift+S</MenubarShortcut>
+              <SaveAll /> 另存为… <MenubarShortcut>Ctrl+Shift+S</MenubarShortcut>
             </MenubarItem>
             <MenubarSeparator />
-            <MenubarItem onClick={() => fileInputRef.current?.click()}>导入旧 JSON…</MenubarItem>
-            <MenubarItem id="menu-export" onClick={handleExport}>导出（下载）</MenubarItem>
+            <MenubarItem onClick={() => fileInputRef.current?.click()}>
+              <FileInput /> 导入旧 JSON…
+            </MenubarItem>
+            <MenubarItem id="menu-export" onClick={handleExport}>
+              <Download /> 导出（下载）
+            </MenubarItem>
           </MenubarContent>
         </MenubarMenu>
 
@@ -196,14 +261,14 @@ export default function MenuBar() {
           <MenubarTrigger>编辑</MenubarTrigger>
           <MenubarContent>
             <MenubarItem onClick={undo} disabled={!canUndo}>
-              撤销 <MenubarShortcut>Ctrl+Z</MenubarShortcut>
+              <Undo2 /> 撤销 <MenubarShortcut>Ctrl+Z</MenubarShortcut>
             </MenubarItem>
             <MenubarItem onClick={redo} disabled={!canRedo}>
-              重做 <MenubarShortcut>Ctrl+Y</MenubarShortcut>
+              <Redo2 /> 重做 <MenubarShortcut>Ctrl+Y</MenubarShortcut>
             </MenubarItem>
             <MenubarSeparator />
             <MenubarItem onClick={() => { setPreferencesOpen(true); setOpenMenu(null) }}>
-              偏好设置…
+              <Settings /> 偏好设置…
             </MenubarItem>
           </MenubarContent>
         </MenubarMenu>
@@ -212,7 +277,7 @@ export default function MenuBar() {
           <MenubarTrigger>视图</MenubarTrigger>
           <MenubarContent>
             <MenubarItem onClick={() => { resetView(); setOpenMenu(null) }}>
-              重置视图
+              <Maximize /> 重置视图
             </MenubarItem>
             <MenubarSeparator />
             <MenubarCheckboxItem
