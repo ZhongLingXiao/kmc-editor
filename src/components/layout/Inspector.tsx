@@ -71,7 +71,6 @@ export default function Inspector() {
   const selectedFrameIndices = useEditorStore((s) => s.selectedFrameIndices)
   const setSelectedField = useEditorStore((s) => s.setSelectedField)
   const renameSelectedSpawnPoint = useEditorStore((s) => s.renameSelectedSpawnPoint)
-  const removeSelected = useEditorStore((s) => s.removeSelected)
   const setSelectedFramesDuration = useEditorStore((s) => s.setSelectedFramesDuration)
   const setSelectedFramesOffset = useEditorStore((s) => s.setSelectedFramesOffset)
   const applyOffsetPresetToSelectedFrames = useEditorStore((s) => s.applyOffsetPresetToSelectedFrames)
@@ -127,9 +126,6 @@ export default function Inspector() {
             <Row label="Y"><NumInput value={selected.data.y} onChange={(v) => setSelectedField('y', v)} /></Row>
             <Row label="宽"><NumInput value={selected.data.w} onChange={(v) => setSelectedField('w', v)} /></Row>
             <Row label="高"><NumInput value={selected.data.h} onChange={(v) => setSelectedField('h', v)} /></Row>
-            <Button variant="outline" size="sm" className="text-destructive" onClick={() => removeSelected()}>
-              <Trash2 /> 删除选中
-            </Button>
           </>
         )}
 
@@ -145,9 +141,6 @@ export default function Inspector() {
             )}
             <Row label="X"><NumInput value={selected.data.x} onChange={(v) => setSelectedField('x', v)} /></Row>
             <Row label="Y"><NumInput value={selected.data.y} onChange={(v) => setSelectedField('y', v)} /></Row>
-            <Button variant="outline" size="sm" className="text-destructive" onClick={() => removeSelected()}>
-              <Trash2 /> 删除选中
-            </Button>
           </>
         )}
 

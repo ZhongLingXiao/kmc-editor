@@ -256,37 +256,6 @@ export default function FrameList() {
           ))}
         </div>
       </ScrollArea>
-      {currentFrameIndex >= 0 && (
-        <>
-          <Separator />
-          <div className="flex shrink-0 gap-1 p-1.5">
-            <Button variant="outline" size="sm" className="flex-1" onClick={() => startLoadSprite(currentFrameIndex)}>
-              载入图
-            </Button>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" onClick={() => duplicateFrame(currentFrameIndex)}>
-                  <Copy />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>复制帧</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => removeFrame(currentFrameIndex)}
-                  disabled={animation.elements.length <= 1}
-                >
-                  <Trash2 />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>删除帧</TooltipContent>
-            </Tooltip>
-          </div>
-        </>
-      )}
     </div>
   )
 }
