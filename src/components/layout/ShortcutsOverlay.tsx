@@ -5,17 +5,60 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Kbd } from '@/components/ui/kbd'
 import { Keyboard, X } from 'lucide-react'
 
-const SHORTCUTS: { keys: string[]; desc: string }[] = [
-  { keys: ['Space'], desc: '播放/暂停·平移' },
-  { keys: ['← →'], desc: '切换帧' },
-  { keys: ['↑ ↓ ← →'], desc: '微调选中元素' },
-  { keys: ['Shift', '拖拽'], desc: '锁主轴向' },
-  { keys: ['Esc'], desc: '取消选中' },
-  { keys: ['Delete'], desc: '删除选中/当前帧' },
-  { keys: ['Ctrl', 'Z'], desc: '撤销' },
-  { keys: ['Ctrl', 'Y'], desc: '重做' },
-  { keys: ['滚轮'], desc: '缩放画布' },
+interface ShortcutItem {
+  keys: string[]
+  desc: string
+}
+
+const SHORTCUT_GROUPS: { title: string; items: ShortcutItem[] }[] = [
+  {
+    title: '工具',
+    items: [
+      { keys: ['Q'], desc: '选择' },
+      { keys: ['W'], desc: '精灵对齐' },
+    ],
+  },
+  {
+    title: '帧',
+    items: [
+      { keys: ['←', '→'], desc: '切换帧' },
+      { keys: ['Delete'], desc: '删除选中/当前帧' },
+    ],
+  },
+  {
+    title: '编辑',
+    items: [
+      { keys: ['↑', '↓', '←', '→'], desc: '微调选中元素' },
+      { keys: ['Shift', '拖拽'], desc: '锁主轴向' },
+      { keys: ['Esc'], desc: '取消选中' },
+      { keys: ['Ctrl', 'Z'], desc: '撤销' },
+      { keys: ['Ctrl', 'Y'], desc: '重做' },
+    ],
+  },
+  {
+    title: '视图',
+    items: [
+      { keys: ['Space'], desc: '播放/暂停·平移' },
+      { keys: ['滚轮'], desc: '缩放画布' },
+    ],
+  },
 ]
+
+function ShortcutRow({ keys, desc }: ShortcutItem) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex shrink-0 items-center gap-0.5">
+        {keys.map((k, i) => (
+          <span key={i} className="flex items-center gap-0.5">
+            {i > 0 && <span className="text-[10px] text-muted-foreground">+</span>}
+            <Kbd className="px-1 py-0 text-[10px]">{k}</Kbd>
+          </span>
+        ))}
+      </div>
+      <span className="truncate text-[11px] text-muted-foreground" title={desc}>{desc}</span>
+    </div>
+  )
+}
 
 export default function ShortcutsOverlay() {
   const [open, setOpen] = useState(false)
@@ -43,18 +86,17 @@ export default function ShortcutsOverlay() {
       <CollapsibleContent className="absolute right-0 top-full mt-1">
         <div className="w-[210px] rounded-md border bg-card/80 p-2 shadow backdrop-blur-sm">
           <span className="mb-1.5 block text-xs font-semibold">快捷键</span>
-          <div className="flex flex-col gap-1">
-            {SHORTCUTS.map((s) => (
-              <div key={s.desc} className="flex items-center justify-between gap-2">
-                <div className="flex shrink-0 items-center gap-0.5">
-                  {s.keys.map((k, i) => (
-                    <span key={i} className="flex items-center gap-0.5">
-                      {i > 0 && <span className="text-[10px] text-muted-foreground">+</span>}
-                      <Kbd className="px-1 py-0 text-[10px]">{k}</Kbd>
-                    </span>
+          <div className="flex flex-col gap-2">
+            {SHORTCUT_GROUPS.map((g) => (
+              <div key={g.title} className="flex flex-col gap-1">
+                <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                  {g.title}
+                </span>
+                <div className="flex flex-col gap-1">
+                  {g.items.map((s) => (
+                    <ShortcutRow key={s.desc} {...s} />
                   ))}
                 </div>
-                <span className="truncate text-[11px] text-muted-foreground" title={s.desc}>{s.desc}</span>
               </div>
             ))}
           </div>

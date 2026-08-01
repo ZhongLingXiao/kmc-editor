@@ -133,6 +133,21 @@ export default function App() {
         return
       }
 
+      // 工具切换（无修饰键）
+      if (!ctrl) {
+        const k = e.key.toLowerCase()
+        if (k === 'q') {
+          e.preventDefault()
+          useEditorStore.getState().setTool('select')
+          return
+        }
+        if (k === 'w') {
+          e.preventDefault()
+          useEditorStore.getState().setTool('anchor')
+          return
+        }
+      }
+
       // 删除优先级：选中对象 → 删对象；多帧选中 → 删选中帧；否则删当前帧
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const state = useEditorStore.getState()
