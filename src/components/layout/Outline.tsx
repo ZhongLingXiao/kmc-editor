@@ -92,7 +92,7 @@ export default function Outline() {
   const totalObjects = items.length
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col border-t">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center justify-between bg-muted/50 px-3 py-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">场景大纲</span>
         {frame && <Badge variant="secondary" className="font-normal">{totalObjects}</Badge>}

@@ -13,6 +13,7 @@ import CanvasArea from './components/layout/CanvasArea'
 import Inspector from './components/layout/Inspector'
 import SettingsPanel from './components/layout/SettingsPanel'
 import TimelineBar from './components/layout/TimelineBar'
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable'
 
 export default function App() {
   const isPlaying = useEditorStore((s) => s.isPlaying)
@@ -206,9 +207,16 @@ export default function App() {
         <MenuBar />
         <div className="flex min-h-0 flex-1">
           <ToolRail />
-          <div className="flex w-[220px] min-w-0 flex-col border-r bg-card">
-            <FrameList />
-            <Outline />
+          <div className="flex w-[220px] shrink-0 flex-col border-r bg-card">
+            <ResizablePanelGroup orientation="vertical">
+              <ResizablePanel defaultSize="67%" minSize="20%" className="flex h-full flex-col">
+                <FrameList />
+              </ResizablePanel>
+              <ResizableHandle withHandle />
+              <ResizablePanel defaultSize="33%" minSize="20%" className="flex h-full flex-col">
+                <Outline />
+              </ResizablePanel>
+            </ResizablePanelGroup>
           </div>
         <CanvasArea />
         <Tabs defaultValue="inspect" className="flex w-[320px] min-w-0 flex-col border-l bg-card">
