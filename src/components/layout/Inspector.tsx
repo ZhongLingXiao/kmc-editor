@@ -41,10 +41,23 @@ function GroupLabel({ children, hint }: { children: React.ReactNode; hint: strin
 }
 
 function StatRow({ label, value }: { label: string; value: React.ReactNode }) {
+  const isString = typeof value === 'string'
+  const valueEl = (
+    <span className="min-w-0 flex-1 truncate text-right font-mono text-muted-foreground">
+      {value}
+    </span>
+  )
   return (
-    <div className="flex items-center justify-between gap-2 text-xs">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="truncate font-mono text-muted-foreground" title={typeof value === 'string' ? value : undefined}>{value}</span>
+    <div className="flex items-center gap-2 text-xs">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      {isString ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            {valueEl}
+          </TooltipTrigger>
+          <TooltipContent className="max-w-[360px] break-all">{value}</TooltipContent>
+        </Tooltip>
+      ) : valueEl}
     </div>
   )
 }
