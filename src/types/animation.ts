@@ -1,11 +1,9 @@
 // 动画数据类型定义
 
-/** 精灵帧来源（单张 PNG） */
+/** 精灵帧来源（工程目录内的相对路径） */
 export interface SpriteSource {
-  /** 原始文件路径/文件名，方便人工关联识别 */
-  path: string;
-  /** base64 data URL，引擎直接加载显示 */
-  data: string;
+  /** 相对工程根的路径，如 "sprites/stand/frame_0.png" */
+  src: string;
   /** 图片宽度 */
   w: number;
   /** 图片高度 */

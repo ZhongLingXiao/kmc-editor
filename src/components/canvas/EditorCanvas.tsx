@@ -3,61 +3,8 @@ import { Stage, Layer, Rect, Line, Image as KonvaImage, Group, Circle, Text, Tra
 import { useEditorStore } from '../../store/editorStore'
 import { COLORS, Box } from '../../types/animation'
 import { toScreen, toGame, toScreenSize, toGameSize } from '../../utils/coordinate'
+import { getSprite, useSprite } from '../../lib/spriteResolver'
 import Konva from 'konva'
-
-/** 已加载的精灵图缓存（key 是 data URL） */
-const spriteCache = new Map<string, HTMLImageElement>()
-
-/** 同步获取缓存的精灵图，如果未加载则触发异步加载 */
-function getSprite(data: string): HTMLImageElement | undefined {
-  if (!data) return undefined
-  const cached = spriteCache.get(data)
-  if (cached) return cached
-  // 未缓存，触发加载（下次渲染就能拿到）
-  if (!spriteCache.has(data)) {
-    spriteCache.set(data, undefined as any) // 标记为加载中
-    const image = new Image()
-    image.onload = () => {
-      spriteCache.set(data, image)
-      // 触发 React 重渲染（通过全局事件）
-      window.dispatchEvent(new CustomEvent('sprite-loaded'))
-    }
-    image.src = data
-  }
-  return undefined
-}
-
-function useSprite(data: string): HTMLImageElement | undefined {
-  const [img, setImg] = useState<HTMLImageElement | undefined>(undefined)
-  const [, forceUpdate] = useState(0)
-
-  useEffect(() => {
-    if (!data) {
-      setImg(undefined)
-      return
-    }
-    const cached = spriteCache.get(data)
-    if (cached && !(cached as any).__loading) {
-      setImg(cached)
-      return
-    }
-    const image = new Image()
-    image.onload = () => {
-      spriteCache.set(data, image)
-      setImg(image)
-    }
-    image.src = data
-  }, [data])
-
-  // 监听其他地方加载完成的精灵图
-  useEffect(() => {
-    const handler = () => forceUpdate((n) => n + 1)
-    window.addEventListener('sprite-loaded', handler)
-    return () => window.removeEventListener('sprite-loaded', handler)
-  }, [])
-
-  return img
-}
 
 export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 'left' }) {
   const flipped = facing === 'left'
@@ -76,7 +23,7 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
 
   const frame = animation.elements[currentFrameIndex]
 
-  const currentSprite = useSprite(frame?.sprite.data || '')
+  const currentSprite = useSprite(frame?.sprite.src || '')
 
   const transformerRef = useRef<Konva.Transformer>(null)
   const isDrawing = useRef(false)
@@ -535,8 +482,8 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
     const nodes: React.ReactNode[] = []
 
     // 精灵图：先画原图，再叠一个设定颜色的半透明矩形做整体着色
-    if (onionSkin.showSprite && elem.sprite.data) {
-      const img = getSprite(elem.sprite.data)
+    if (onionSkin.showSprite && elem.sprite.src) {
+      const img = getSprite(elem.sprite.src)
       if (img) {
         const x = flipped ? originX + elem.offset.x * scale : originX - elem.offset.x * scale
         const y = originY - elem.offset.y * scale

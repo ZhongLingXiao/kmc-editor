@@ -1,18 +1,26 @@
+import { importSpriteFile } from './project'
+import { useProjectStore } from '../store/projectStore'
+import { useEditorStore } from '../store/editorStore'
+
+export interface ImportResult {
+  src: string
+  w: number
+  h: number
+}
+
 /**
- * 读取图片文件为 dataURL 并获取尺寸。
- * 供拖拽导入 / 文件选择共用。
+ * 把用户选/拖入的图片导入到工作区目录，返回相对 src + 尺寸。
+ * 必须先设定工作区，否则抛错（由调用方提示用户先设定工作区）。
+ * fileHandle 可选：若来自 showOpenFilePicker，传入可判断是否已在工作区内避免重复拷贝。
  */
-export function readImageFile(file: File): Promise<{ path: string; data: string; w: number; h: number }> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const dataUrl = reader.result as string
-      const img = new Image()
-      img.onload = () => resolve({ path: file.name, data: dataUrl, w: img.width, h: img.height })
-      img.onerror = () => reject(new Error('图片加载失败'))
-      img.src = dataUrl
-    }
-    reader.onerror = () => reject(new Error('图片读取失败'))
-    reader.readAsDataURL(file)
-  })
+export async function importImageToProject(
+  file: File,
+  fileHandle?: FileSystemFileHandle
+): Promise<ImportResult> {
+  const rootHandle = useProjectStore.getState().workspaceHandle
+  if (!rootHandle) {
+    throw new Error('请先设定工作区目录')
+  }
+  const anim = useEditorStore.getState().animation
+  return importSpriteFile(rootHandle, file, anim.id, fileHandle)
 }

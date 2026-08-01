@@ -55,15 +55,21 @@ export default function Inspector() {
   const selectedBoxId = useEditorStore((s) => s.selectedBoxId)
   const selectedBoxType = useEditorStore((s) => s.selectedBoxType)
   const selectedIds = useEditorStore((s) => s.selectedIds)
+  const selectedFrameIndices = useEditorStore((s) => s.selectedFrameIndices)
+  const setSelectedField = useEditorStore((s) => s.setSelectedField)
+  const renameSelectedSpawnPoint = useEditorStore((s) => s.renameSelectedSpawnPoint)
   const removeSelected = useEditorStore((s) => s.removeSelected)
-  const updateBox = useEditorStore((s) => s.updateBox)
-  const updatePushbox = useEditorStore((s) => s.updatePushbox)
-  const updateSpawnPoint = useEditorStore((s) => s.updateSpawnPoint)
+  const setSelectedFramesDuration = useEditorStore((s) => s.setSelectedFramesDuration)
+  const setSelectedFramesOffset = useEditorStore((s) => s.setSelectedFramesOffset)
+  const applyOffsetPresetToSelectedFrames = useEditorStore((s) => s.applyOffsetPresetToSelectedFrames)
+  const removeSelectedFrames = useEditorStore((s) => s.removeSelectedFrames)
   const updateFrame = useEditorStore((s) => s.updateFrame)
   const setOffset = useEditorStore((s) => s.setOffset)
 
   const frame = currentFrameIndex >= 0 ? animation.elements[currentFrameIndex] : null
   const multi = selectedIds.length > 1
+  const operatingFrames = selectedFrameIndices.length > 0 ? selectedFrameIndices.length : 1
+  const crossFrame = operatingFrames > 1
 
   const selected =
     selectedBoxId && selectedBoxType
@@ -79,10 +85,11 @@ export default function Inspector() {
       : null
 
   let title = '检视器'
-  if (multi) {
-    title = `多选 (${selectedIds.length})`
-  } else if (selected?.data) {
-    title = selected.type === 'hurtbox' ? '受击框' : selected.type === 'hitbox' ? '攻击框' : selected.type === 'jcbox' ? 'JC框' : selected.type === 'pushbox' ? '推挤框（站立）' : '发射点'
+  if (selected?.data) {
+    const base = selected.type === 'hurtbox' ? '受击框' : selected.type === 'hitbox' ? '攻击框' : selected.type === 'jcbox' ? 'JC框' : selected.type === 'pushbox' ? '推挤框（站立）' : '发射点'
+    title = multi ? `${base} (${selectedIds.length} 选)` : base
+  } else if (frame && crossFrame) {
+    title = `多帧 (${operatingFrames})`
   } else if (frame) {
     title = `帧 ${currentFrameIndex}`
   }
@@ -94,52 +101,80 @@ export default function Inspector() {
       </div>
       <Separator />
       <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-auto p-3">
-        {/* 多选：显示计数与批量删除（批量改数值留二期） */}
-        {multi && (
+        {/* 选中对象属性：显示主选值，编辑传播到所有选中帧的对应对象 */}
+        {selected?.data && (selected.type === 'hurtbox' || selected.type === 'hitbox' || selected.type === 'jcbox' || selected.type === 'pushbox') && (
           <>
-            <p className="text-xs text-muted-foreground">已选 {selectedIds.length} 个对象</p>
+            {(multi || crossFrame) && (
+              <p className="text-[11px] text-muted-foreground">作用于 {selectedIds.length} 个对象 / {operatingFrames} 帧</p>
+            )}
+            {selected.type === 'pushbox' && (
+              <p className="text-[11px] leading-relaxed text-muted-foreground">推挤框是角色物理占位，坐标相对 Root (0,0)。</p>
+            )}
+            <Row label="X"><NumInput value={selected.data.x} onChange={(v) => setSelectedField('x', v)} /></Row>
+            <Row label="Y"><NumInput value={selected.data.y} onChange={(v) => setSelectedField('y', v)} /></Row>
+            <Row label="宽"><NumInput value={selected.data.w} onChange={(v) => setSelectedField('w', v)} /></Row>
+            <Row label="高"><NumInput value={selected.data.h} onChange={(v) => setSelectedField('h', v)} /></Row>
             <Button variant="outline" size="sm" className="text-destructive" onClick={() => removeSelected()}>
-              <Trash2 /> 批量删除
+              <Trash2 /> 删除选中
             </Button>
-            <p className="text-[11px] text-muted-foreground">方向键整体微调，拖拽整体平移。</p>
           </>
         )}
 
-        {/* 选中对象属性（单选） */}
-        {!multi && selected?.data && (selected.type === 'hurtbox' || selected.type === 'hitbox' || selected.type === 'jcbox') && (
+        {selected?.type === 'spawnpoint' && selected.data && (
           <>
-            <Row label="X"><NumInput value={selected.data.x} onChange={(v) => updateBox(selected.type, selectedBoxId!, { x: v })} /></Row>
-            <Row label="Y"><NumInput value={selected.data.y} onChange={(v) => updateBox(selected.type, selectedBoxId!, { y: v })} /></Row>
-            <Row label="宽"><NumInput value={selected.data.w} onChange={(v) => updateBox(selected.type, selectedBoxId!, { w: v })} /></Row>
-            <Row label="高"><NumInput value={selected.data.h} onChange={(v) => updateBox(selected.type, selectedBoxId!, { h: v })} /></Row>
-          </>
-        )}
-
-        {!multi && selected?.type === 'pushbox' && selected.data && (
-          <>
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              推挤框是角色物理占位，坐标相对固定 Root (0,0)。可拖拽、缩放或直接输入数值。
-            </p>
-            {(['x', 'y', 'w', 'h'] as const).map((k) => (
-              <Row key={k} label={{ x: 'X', y: 'Y', w: '宽', h: '高' }[k]}>
-                <NumInput value={selected.data![k]} onChange={(v) => updatePushbox('stand', { [k]: v })} />
+            {(multi || crossFrame) && (
+              <p className="text-[11px] text-muted-foreground">作用于 {selectedIds.length} 个对象 / {operatingFrames} 帧</p>
+            )}
+            {selectedIds.length === 1 && (
+              <Row label="名称">
+                <Input value={selected.data.name} onChange={(e) => renameSelectedSpawnPoint(e.target.value)} className="h-7" />
               </Row>
-            ))}
+            )}
+            <Row label="X"><NumInput value={selected.data.x} onChange={(v) => setSelectedField('x', v)} /></Row>
+            <Row label="Y"><NumInput value={selected.data.y} onChange={(v) => setSelectedField('y', v)} /></Row>
+            <Button variant="outline" size="sm" className="text-destructive" onClick={() => removeSelected()}>
+              <Trash2 /> 删除选中
+            </Button>
           </>
         )}
 
-        {!multi && selected?.type === 'spawnpoint' && selected.data && (
+        {/* 无对象选中 + 多帧选中：帧批量 */}
+        {frame && !selected?.data && crossFrame && (
           <>
-            <Row label="名称">
-              <Input value={selected.data.name} onChange={(e) => updateSpawnPoint(selectedBoxId!, { name: e.target.value })} className="h-7" />
+            <p className="text-xs text-muted-foreground">已选 {operatingFrames} 帧</p>
+            <Row label="时长">
+              <div className="flex items-center gap-2">
+                <NumInput value={frame.duration} onChange={(v) => setSelectedFramesDuration(v)} />
+                <span className="text-xs text-muted-foreground">Tick</span>
+              </div>
             </Row>
-            <Row label="X"><NumInput value={selected.data.x} onChange={(v) => updateSpawnPoint(selectedBoxId!, { x: v })} /></Row>
-            <Row label="Y"><NumInput value={selected.data.y} onChange={(v) => updateSpawnPoint(selectedBoxId!, { y: v })} /></Row>
+            <p className="text-[11px] text-muted-foreground">时长统一设到所有选中帧。</p>
+            {frame.sprite.w > 0 ? (
+              <>
+                <GroupLabel hint="图片对齐到角色根点 Root(0,0) 的像素坐标；统一设到所有选中帧">轴点</GroupLabel>
+                <Row label="X"><NumInput value={frame.offset.x} onChange={(v) => setSelectedFramesOffset(v, frame.offset.y)} /></Row>
+                <Row label="Y"><NumInput value={frame.offset.y} onChange={(v) => setSelectedFramesOffset(frame.offset.x, v)} /></Row>
+                <GroupLabel hint="按每帧各自精灵图尺寸计算：脚底中心=站立着地；图片中心=几何中心">快速设置</GroupLabel>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" className="flex-1" onClick={() => applyOffsetPresetToSelectedFrames('foot')}>
+                    <Footprints /> 脚底中心
+                  </Button>
+                  <Button variant="outline" size="sm" className="flex-1" onClick={() => applyOffsetPresetToSelectedFrames('center')}>
+                    <AlignCenter /> 图片中心
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">当前帧未载入精灵图，轴点不可批量设置。</p>
+            )}
+            <Button variant="outline" size="sm" className="text-destructive" onClick={() => removeSelectedFrames()} disabled={animation.elements.length <= 1}>
+              <Trash2 /> 批量删除帧
+            </Button>
           </>
         )}
 
-        {/* 无选中对象：显示帧属性 */}
-        {frame && !multi && !selected?.data && (
+        {/* 无对象选中 + 单帧：帧属性 */}
+        {frame && !selected?.data && !crossFrame && (
           <>
             <Row label="时长">
               <div className="flex items-center gap-2">
@@ -164,7 +199,7 @@ export default function Inspector() {
                 <Separator className="my-1" />
                 <span className="text-xs font-medium text-muted-foreground">信息</span>
                 <div className="flex flex-col gap-1">
-                  <StatRow label="文件名" value={frame.sprite.path || '—'} />
+                  <StatRow label="路径" value={frame.sprite.src || '—'} />
                   <StatRow label="尺寸" value={`${frame.sprite.w}×${frame.sprite.h}`} />
                 </div>
               </>

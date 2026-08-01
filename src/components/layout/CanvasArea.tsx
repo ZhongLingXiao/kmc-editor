@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useEditorStore } from '../../store/editorStore'
+import { useProjectStore } from '../../store/projectStore'
 import EditorCanvas from '../canvas/EditorCanvas'
 import ShortcutsOverlay from './ShortcutsOverlay'
 import PreviewShelf from './PreviewShelf'
+import NewAnimationDialog from './NewAnimationDialog'
 import { Badge } from '@/components/ui/badge'
 import {
   ContextMenu,
@@ -15,7 +17,7 @@ import {
   ContextMenuSubContent,
 } from '@/components/ui/context-menu'
 import { spaceState } from '../../lib/space-pan'
-import { readImageFile } from '../../lib/image'
+import { importImageToProject } from '../../lib/image'
 import { MousePointer2, Move, Square, Swords, Diamond, Box, Crosshair } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -40,6 +42,10 @@ export default function CanvasArea() {
   const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 })
   const [spaceHeld, setSpaceHeld] = useState(false)
   const [facing, setFacing] = useState<'right' | 'left'>('right')
+
+  // 拖图到空场景时暂存待导入的文件，创建动画后导入
+  const [pendingDropFile, setPendingDropFile] = useState<File | null>(null)
+  const [newAnimOpen, setNewAnimOpen] = useState(false)
 
   // 自适应画布大小
   useEffect(() => {
@@ -98,30 +104,55 @@ export default function CanvasArea() {
     if (isPanning) setIsPanning(false)
   }
 
-  // 拖拽图片到画布：当前帧无图 → 导入当前帧；当前帧有图 → 创建新帧（多图目前只取第一张）
+  // 拖拽图片到画布：没有动画在编辑 → 弹窗创建动画；当前帧无图 → 导入当前帧；有图 → 创建新帧
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     const file = e.dataTransfer.files[0]
     if (!file || !file.type.startsWith('image/')) return
+    // 只有当前没有动画在编辑时才提示创建动画（不看是否有图片帧）
+    if (!useProjectStore.getState().currentAnimId) {
+      setPendingDropFile(file)
+      setNewAnimOpen(true)
+      return
+    }
     try {
-      const info = await readImageFile(file)
+      const info = await importImageToProject(file)
       const store = useEditorStore.getState()
       const cur = store.currentFrameIndex
       const curFrame = cur >= 0 ? store.animation.elements[cur] : null
       if (curFrame && curFrame.sprite.w === 0) {
         // 当前帧无图 → 直接导入当前帧
-        store.loadSprite(cur, info.path, info.data, info.w, info.h)
+        useEditorStore.getState().loadSprite(cur, info.src, info.w, info.h)
         toast.success('已导入当前帧')
       } else {
-        // 当前帧有图 → 继承末尾帧数据创建新帧
+        // 当前帧有图或无帧 → 继承末尾帧数据创建新帧
         const lastIdx = store.animation.elements.length - 1
         addFrame(lastIdx)
         const newIndex = useEditorStore.getState().currentFrameIndex
-        useEditorStore.getState().loadSprite(newIndex, info.path, info.data, info.w, info.h)
+        useEditorStore.getState().loadSprite(newIndex, info.src, info.w, info.h)
         toast.success('已创建新帧')
       }
-    } catch {
-      toast.error('图片加载失败')
+    } catch (err) {
+      toast.error((err as Error).message || '图片加载失败')
+    }
+  }
+
+  // 拖图触发的创建动画确认：创建动画后导入暂存的图片
+  const handlePendingDropConfirm = async (name: string) => {
+    await useProjectStore.getState().createAnimation(name)
+    const file = pendingDropFile
+    setPendingDropFile(null)
+    if (!file) return
+    try {
+      const info = await importImageToProject(file)
+      const store = useEditorStore.getState()
+      // 新建动画无帧，先创建第一帧再导入
+      if (store.currentFrameIndex < 0) addFrame(-1)
+      const cur = useEditorStore.getState().currentFrameIndex
+      if (cur >= 0) useEditorStore.getState().loadSprite(cur, info.src, info.w, info.h)
+      toast.success(`已创建动画 ${name} 并导入图片`)
+    } catch (err) {
+      toast.error((err as Error).message || '图片加载失败')
     }
   }
 
@@ -217,6 +248,13 @@ export default function CanvasArea() {
       <Badge variant="secondary" className="pointer-events-none absolute bottom-2 right-3 font-normal">
         缩放 {Math.round(scale * 100)}%
       </Badge>
+
+      <NewAnimationDialog
+        open={newAnimOpen}
+        onOpenChange={setNewAnimOpen}
+        onConfirm={handlePendingDropConfirm}
+        onCancel={() => setPendingDropFile(null)}
+      />
     </div>
   )
 }

@@ -19,7 +19,7 @@ function genId(): string {
 function createEmptyElement(index: number): AnimElement {
   return {
     index,
-    sprite: { path: '', data: '', w: 0, h: 0 },
+    sprite: { src: '', w: 0, h: 0 },
     duration: 1,
     offset: { x: 0, y: 0 },
     hurtboxes: [],
@@ -78,6 +78,80 @@ function primaryFromIds(
   return { id, type: findTypeId(animation, frameIndex, id) }
 }
 
+/** 跨帧对应规格：框按类型内索引、发射点按名字、推挤框全局唯一 */
+type SelSpec =
+  | { kind: 'box'; type: 'hurtbox' | 'hitbox' | 'jcbox'; index: number }
+  | { kind: 'spawn'; name: string }
+  | { kind: 'push' }
+
+/** 把锚点帧上的 selectedIds 解析为跨帧对应规格 */
+function resolveSpecs(animation: AnimationData, anchorFrameIndex: number, ids: string[]): SelSpec[] {
+  const frame = animation.elements[anchorFrameIndex]
+  const specs: SelSpec[] = []
+  if (!frame) return specs
+  for (const id of ids) {
+    let i = frame.hurtboxes.findIndex((b) => b.id === id)
+    if (i >= 0) { specs.push({ kind: 'box', type: 'hurtbox', index: i }); continue }
+    i = frame.hitboxes.findIndex((b) => b.id === id)
+    if (i >= 0) { specs.push({ kind: 'box', type: 'hitbox', index: i }); continue }
+    i = frame.jcboxes.findIndex((b) => b.id === id)
+    if (i >= 0) { specs.push({ kind: 'box', type: 'jcbox', index: i }); continue }
+    const sp = frame.spawnPoints.find((p) => p.id === id)
+    if (sp) { specs.push({ kind: 'spawn', name: sp.name }); continue }
+    if (animation.pushbox.stand?.id === id) { specs.push({ kind: 'push' }); continue }
+  }
+  return specs
+}
+
+/** 操作要作用的帧集：选中帧 ∪ 当前帧（锚点始终包含），过滤越界 */
+function targetFrames(selectedFrameIndices: number[], currentFrameIndex: number, len: number): number[] {
+  const set = new Set<number>(selectedFrameIndices)
+  if (currentFrameIndex >= 0) set.add(currentFrameIndex)
+  return Array.from(set).filter((i) => i >= 0 && i < len)
+}
+
+/** 按 specs 在单帧上应用：boxFn/spawnFn 返回新对象或 null（null=删除） */
+function applySpecsToFrame(
+  frame: AnimElement,
+  specs: SelSpec[],
+  boxFn: (b: Box, type: 'hurtbox' | 'hitbox' | 'jcbox') => Box | null,
+  spawnFn: (p: SpawnPoint) => SpawnPoint | null
+): AnimElement {
+  const boxIdx = (type: 'hurtbox' | 'hitbox' | 'jcbox') =>
+    new Set(specs.filter((s) => s.kind === 'box' && s.type === type).map((s) => (s as { index: number }).index))
+  const spawnNames = new Set(specs.filter((s) => s.kind === 'spawn').map((s) => (s as { name: string }).name))
+  const mapBox = (list: Box[], type: 'hurtbox' | 'hitbox' | 'jcbox') => {
+    const idxs = boxIdx(type)
+    if (idxs.size === 0) return list
+    const out: Box[] = []
+    list.forEach((b, i) => {
+      if (idxs.has(i)) {
+        const r = boxFn(b, type)
+        if (r !== null) out.push(r)
+      } else out.push(b)
+    })
+    return out
+  }
+  let spawnPoints = frame.spawnPoints
+  if (spawnNames.size > 0) {
+    const out: SpawnPoint[] = []
+    frame.spawnPoints.forEach((p) => {
+      if (spawnNames.has(p.name)) {
+        const r = spawnFn(p)
+        if (r !== null) out.push(r)
+      } else out.push(p)
+    })
+    spawnPoints = out
+  }
+  return {
+    ...frame,
+    hurtboxes: mapBox(frame.hurtboxes, 'hurtbox'),
+    hitboxes: mapBox(frame.hitboxes, 'hitbox'),
+    jcboxes: mapBox(frame.jcboxes, 'jcbox'),
+    spawnPoints,
+  }
+}
+
 /** 创建默认动画 */
 function createDefaultAnimation(): AnimationData {
   return {
@@ -102,6 +176,7 @@ interface EditorState {
   selectedBoxId: string | null
   selectedBoxType: 'hurtbox' | 'hitbox' | 'jcbox' | 'pushbox' | 'spawnpoint' | null
   selectedIds: string[] // 多选：全部选中对象 id（跨类型），主选 = 最后操作项
+  selectedFrameIndices: number[] // 多选：选中的帧（元素操作按对应关系传播到这些帧）
   showLayers: ShowLayers
   onionSkin: OnionSkinSettings
   settingsOpen: string[] // 设置面板 Accordion 展开项（编辑器态，持久跨 tab 切换）
@@ -138,7 +213,7 @@ interface EditorState {
   setFrame: (index: number) => void
   moveFrame: (from: number, to: number) => void
   updateFrame: (index: number, data: Partial<AnimElement>) => void
-  loadSprite: (index: number, path: string, data: string, w: number, h: number) => void
+  loadSprite: (index: number, src: string, w: number, h: number) => void
   // 移动播放头到指定 tick（currentFrameIndex 随之派生）
   setCurrentTick: (tick: number) => void
 
@@ -152,6 +227,15 @@ interface EditorState {
   clearSelection: () => void
   moveSelected: (dx: number, dy: number) => void
   removeSelected: () => void
+  setSelectedField: (field: 'x' | 'y' | 'w' | 'h', value: number) => void
+  renameSelectedSpawnPoint: (newName: string) => void
+  toggleFrameSelection: (index: number) => void
+  selectFrameRange: (indices: number[]) => void
+  clearFrameSelection: () => void
+  setSelectedFramesDuration: (value: number) => void
+  setSelectedFramesOffset: (x: number, y: number) => void
+  applyOffsetPresetToSelectedFrames: (preset: 'foot' | 'center') => void
+  removeSelectedFrames: () => void
 
   // === Actions: Pushbox ===
   setPushbox: (type: 'stand' | 'crouch' | 'air', box: Omit<Box, 'id'> | null) => void
@@ -203,6 +287,7 @@ export const useEditorStore = create<EditorState>()(
       selectedBoxId: null,
       selectedBoxType: null,
       selectedIds: [],
+      selectedFrameIndices: [],
       showLayers: {
         hurtbox: true,
         hitbox: true,
@@ -256,6 +341,7 @@ export const useEditorStore = create<EditorState>()(
           selectedIds: [],
           selectedBoxId: null,
           selectedBoxType: null,
+          selectedFrameIndices: data.elements.length > 0 ? [0] : [],
         }))
         // 载入/新建/导入是全新起点：清空撤销历史，避免 Ctrl+Z 回退到打开前
         useEditorStore.temporal.getState().clear()
@@ -270,7 +356,7 @@ export const useEditorStore = create<EditorState>()(
           const elements = [...s.animation.elements]
           const newIndex = elements.length
 
-          // 继承源帧数据：轴点与碰撞箱/发射点分别由两个开关控制，只清空精灵图
+          // 继承源帧数据：轴点与碰撞箱/发射点分别由两个开关控制，精灵图 src 继承（多帧可共用同一张图，磁盘只一份）
           const srcIdx = sourceIndex ?? s.currentFrameIndex
           const prev = srcIdx >= 0 ? elements[srcIdx] : null
           const inheritOffset = s.newFrameInheritOffset
@@ -280,7 +366,7 @@ export const useEditorStore = create<EditorState>()(
               ? {
                   ...prev,
                   index: newIndex,
-                  sprite: { path: '', data: '', w: 0, h: 0 },
+                  sprite: { src: prev.sprite.src, w: prev.sprite.w, h: prev.sprite.h },
                   offset: inheritOffset ? prev.offset : { x: 0, y: 0 },
                   hurtboxes: inheritBoxes ? prev.hurtboxes.map((b) => ({ ...b, id: genId() })) : [],
                   hitboxes: inheritBoxes ? prev.hitboxes.map((b) => ({ ...b, id: genId() })) : [],
@@ -314,6 +400,7 @@ export const useEditorStore = create<EditorState>()(
             selectedIds: [],
             selectedBoxId: null,
             selectedBoxType: null,
+            selectedFrameIndices: [Math.max(0, newIndex)],
           }
         }),
 
@@ -321,7 +408,7 @@ export const useEditorStore = create<EditorState>()(
         set((s) => {
           const elements = s.animation.elements
           const clampedAt = Math.max(0, Math.min(at, elements.length))
-          // 继承源帧数据：轴点与碰撞箱/发射点分别由两个开关控制，清空精灵图，重新生成 ID
+          // 继承源帧数据：轴点与碰撞箱/发射点分别由两个开关控制，精灵图 src 继承，重新生成 ID
           const src = elements[sourceIndex] ?? elements[clampedAt] ?? null
           const inheritOffset = s.newFrameInheritOffset
           const inheritBoxes = s.newFrameInheritBoxes
@@ -330,7 +417,7 @@ export const useEditorStore = create<EditorState>()(
               ? {
                   ...src,
                   index: clampedAt,
-                  sprite: { path: '', data: '', w: 0, h: 0 },
+                  sprite: { src: src.sprite.src, w: src.sprite.w, h: src.sprite.h },
                   offset: inheritOffset ? src.offset : { x: 0, y: 0 },
                   hurtboxes: inheritBoxes ? src.hurtboxes.map((b) => ({ ...b, id: genId() })) : [],
                   hitboxes: inheritBoxes ? src.hitboxes.map((b) => ({ ...b, id: genId() })) : [],
@@ -379,18 +466,18 @@ export const useEditorStore = create<EditorState>()(
       setFrame: (index) =>
         set((s) => {
           if (index < 0 || index >= s.animation.elements.length) return s
-          return { currentFrameIndex: index, currentTick: frameStartTick(s.animation.elements, index), selectedIds: [], selectedBoxId: null, selectedBoxType: null }
+          return { currentFrameIndex: index, currentTick: frameStartTick(s.animation.elements, index), selectedIds: [], selectedBoxId: null, selectedBoxType: null, selectedFrameIndices: [index] }
         }),
 
       // 移动播放头：currentFrameIndex 由 tick 派生，可在帧内任意 tick 停留
       setCurrentTick: (tick) =>
         set((s) => {
-          if (s.animation.elements.length === 0) return { currentTick: 0, currentFrameIndex: -1, selectedIds: [], selectedBoxId: null, selectedBoxType: null }
+          if (s.animation.elements.length === 0) return { currentTick: 0, currentFrameIndex: -1, selectedIds: [], selectedBoxId: null, selectedBoxType: null, selectedFrameIndices: [] }
           const clamped = Math.max(0, Math.min(s.animation.totalTicks, tick))
           const newFrame = findFrameIndex(s.animation.elements, clamped)
-          // 帧变化时清空选区，避免选中别帧对象
+          // 帧变化时清空选区与帧多选，避免选中别帧对象
           if (newFrame !== s.currentFrameIndex) {
-            return { currentTick: clamped, currentFrameIndex: newFrame, selectedIds: [], selectedBoxId: null, selectedBoxType: null }
+            return { currentTick: clamped, currentFrameIndex: newFrame, selectedIds: [], selectedBoxId: null, selectedBoxType: null, selectedFrameIndices: [newFrame] }
           }
           return { currentTick: clamped, currentFrameIndex: newFrame }
         }),
@@ -431,7 +518,7 @@ export const useEditorStore = create<EditorState>()(
           }
         }),
 
-      loadSprite: (index, path, data, w, h) =>
+      loadSprite: (index, src, w, h) =>
         set((s) => {
           const elements = [...s.animation.elements]
           if (!elements[index]) return s
@@ -441,7 +528,7 @@ export const useEditorStore = create<EditorState>()(
           const isFirstLoad = old.offset.x === 0 && old.offset.y === 0
           elements[index] = {
             ...old,
-            sprite: { path, data, w, h },
+            sprite: { src, w, h },
             offset: isFirstLoad ? { x: Math.round(w / 2), y: h } : old.offset,
           }
           return { animation: { ...s.animation, elements } }
@@ -527,52 +614,179 @@ export const useEditorStore = create<EditorState>()(
 
       clearSelection: () => set({ selectedIds: [], selectedBoxId: null, selectedBoxType: null }),
 
-      // 整体平移所有选中对象（单次 set → 单步撤销）
+      // 整体平移选中对象：跨所有选中帧按对应关系传播（框按索引/发射点按名字/推挤框全局）
       moveSelected: (dx, dy) =>
         set((s) => {
           if (s.selectedIds.length === 0 || (dx === 0 && dy === 0)) return s
+          const specs = resolveSpecs(s.animation, s.currentFrameIndex, s.selectedIds)
+          if (specs.length === 0) return s
+          const frames = targetFrames(s.selectedFrameIndices, s.currentFrameIndex, s.animation.elements.length)
           const elements = [...s.animation.elements]
-          const frame = elements[s.currentFrameIndex]
-          if (!frame) return s
-          const sel = new Set(s.selectedIds)
-          const moveBox = (b: Box) => (sel.has(b.id) ? { ...b, x: b.x + dx, y: b.y + dy } : b)
-          elements[s.currentFrameIndex] = {
-            ...frame,
-            hurtboxes: frame.hurtboxes.map(moveBox),
-            hitboxes: frame.hitboxes.map(moveBox),
-            jcboxes: frame.jcboxes.map(moveBox),
-            spawnPoints: frame.spawnPoints.map((p) => (sel.has(p.id) ? { ...p, x: p.x + dx, y: p.y + dy } : p)),
+          for (const fi of frames) {
+            const f = elements[fi]
+            if (!f) continue
+            elements[fi] = applySpecsToFrame(f, specs, (b) => ({ ...b, x: b.x + dx, y: b.y + dy }), (p) => ({ ...p, x: p.x + dx, y: p.y + dy }))
           }
           let pushbox = s.animation.pushbox
-          if (pushbox.stand && sel.has(pushbox.stand.id)) {
+          if (specs.some((sp) => sp.kind === 'push') && pushbox.stand) {
             pushbox = { ...pushbox, stand: { ...pushbox.stand, x: pushbox.stand.x + dx, y: pushbox.stand.y + dy } }
           }
           return { animation: { ...s.animation, elements, pushbox } }
         }),
 
-      // 删除所有选中对象，然后清空选区
+      // 删除选中对象：跨所有选中帧按对应关系传播，然后清空选区
       removeSelected: () =>
         set((s) => {
           if (s.selectedIds.length === 0) return s
-          const sel = new Set(s.selectedIds)
+          const specs = resolveSpecs(s.animation, s.currentFrameIndex, s.selectedIds)
+          if (specs.length === 0) return s
+          const frames = targetFrames(s.selectedFrameIndices, s.currentFrameIndex, s.animation.elements.length)
           const elements = [...s.animation.elements]
-          const frame = elements[s.currentFrameIndex]
-          if (frame) {
-            elements[s.currentFrameIndex] = {
-              ...frame,
-              hurtboxes: frame.hurtboxes.filter((b) => !sel.has(b.id)),
-              hitboxes: frame.hitboxes.filter((b) => !sel.has(b.id)),
-              jcboxes: frame.jcboxes.filter((b) => !sel.has(b.id)),
-              spawnPoints: frame.spawnPoints.filter((p) => !sel.has(p.id)),
-            }
+          for (const fi of frames) {
+            const f = elements[fi]
+            if (!f) continue
+            elements[fi] = applySpecsToFrame(f, specs, () => null, () => null)
           }
           let pushbox = s.animation.pushbox
-          if (pushbox.stand && sel.has(pushbox.stand.id)) {
+          if (specs.some((sp) => sp.kind === 'push') && pushbox.stand) {
             pushbox = { ...pushbox }
             delete pushbox.stand
           }
           return {
             animation: { ...s.animation, elements, pushbox },
+            selectedIds: [],
+            selectedBoxId: null,
+            selectedBoxType: null,
+          }
+        }),
+
+      // 批量设置选中对象某字段（跨帧传播；发射点只设 x/y）
+      setSelectedField: (field, value) =>
+        set((s) => {
+          if (s.selectedIds.length === 0) return s
+          const specs = resolveSpecs(s.animation, s.currentFrameIndex, s.selectedIds)
+          if (specs.length === 0) return s
+          const frames = targetFrames(s.selectedFrameIndices, s.currentFrameIndex, s.animation.elements.length)
+          const elements = [...s.animation.elements]
+          const boxFn = (b: Box) => ({ ...b, [field]: value })
+          const spawnFn = (p: SpawnPoint) => (field === 'x' || field === 'y' ? { ...p, [field]: value } : p)
+          for (const fi of frames) {
+            const f = elements[fi]
+            if (!f) continue
+            elements[fi] = applySpecsToFrame(f, specs, boxFn, spawnFn)
+          }
+          let pushbox = s.animation.pushbox
+          if (specs.some((sp) => sp.kind === 'push') && pushbox.stand) {
+            pushbox = { ...pushbox, stand: { ...pushbox.stand, [field]: value } }
+          }
+          return { animation: { ...s.animation, elements, pushbox } }
+        }),
+
+      // 重命名选中发射点（按名字跨帧同步重命名，保持对应关系）
+      renameSelectedSpawnPoint: (newName) =>
+        set((s) => {
+          if (s.selectedIds.length === 0) return s
+          const specs = resolveSpecs(s.animation, s.currentFrameIndex, s.selectedIds)
+          const names = new Set(specs.filter((sp) => sp.kind === 'spawn').map((sp) => (sp as { name: string }).name))
+          if (names.size === 0) return s
+          const frames = targetFrames(s.selectedFrameIndices, s.currentFrameIndex, s.animation.elements.length)
+          const elements = [...s.animation.elements]
+          for (const fi of frames) {
+            const f = elements[fi]
+            if (!f) continue
+            elements[fi] = { ...f, spawnPoints: f.spawnPoints.map((p) => (names.has(p.name) ? { ...p, name: newName } : p)) }
+          }
+          return { animation: { ...s.animation, elements } }
+        }),
+
+      // 帧多选：Ctrl 切换某帧进出选区，当前帧随之移动到该帧
+      toggleFrameSelection: (i) =>
+        set((s) => {
+          const exists = s.selectedFrameIndices.includes(i)
+          const next = exists ? s.selectedFrameIndices.filter((x) => x !== i) : [...s.selectedFrameIndices, i]
+          return {
+            currentFrameIndex: i,
+            currentTick: frameStartTick(s.animation.elements, i),
+            selectedFrameIndices: next,
+            selectedIds: [],
+            selectedBoxId: null,
+            selectedBoxType: null,
+          }
+        }),
+
+      // 帧多选：Shift 范围选，选区 = indices，当前帧（锚点）不变
+      selectFrameRange: (indices) =>
+        set({
+          selectedFrameIndices: indices,
+          selectedIds: [],
+          selectedBoxId: null,
+          selectedBoxType: null,
+        }),
+
+      clearFrameSelection: () => set({ selectedFrameIndices: [] }),
+
+      // 批量设置选中帧的 duration
+      setSelectedFramesDuration: (value) =>
+        set((s) => {
+          const frames = targetFrames(s.selectedFrameIndices, s.currentFrameIndex, s.animation.elements.length)
+          if (frames.length === 0) return s
+          const v = Math.max(1, Math.round(value))
+          const elements = [...s.animation.elements]
+          for (const fi of frames) {
+            if (elements[fi]) elements[fi] = { ...elements[fi], duration: v }
+          }
+          const totalTicks = elements.reduce((sum, e) => sum + e.duration, 0)
+          const clampedTick = Math.min(s.currentTick, totalTicks)
+          return { animation: { ...s.animation, elements, totalTicks }, currentTick: clampedTick }
+        }),
+
+      // 批量设置选中帧的轴点 offset（绝对值，所有选中帧设为同一 x/y）
+      setSelectedFramesOffset: (x, y) =>
+        set((s) => {
+          const frames = targetFrames(s.selectedFrameIndices, s.currentFrameIndex, s.animation.elements.length)
+          if (frames.length === 0) return s
+          const elements = [...s.animation.elements]
+          for (const fi of frames) {
+            if (elements[fi]) elements[fi] = { ...elements[fi], offset: { x, y } }
+          }
+          return { animation: { ...s.animation, elements } }
+        }),
+
+      // 按预设批量设轴点：每帧按各自精灵图尺寸计算（脚底中心/图片中心），无精灵图的帧跳过
+      applyOffsetPresetToSelectedFrames: (preset) =>
+        set((s) => {
+          const frames = targetFrames(s.selectedFrameIndices, s.currentFrameIndex, s.animation.elements.length)
+          if (frames.length === 0) return s
+          const elements = [...s.animation.elements]
+          let changed = false
+          for (const fi of frames) {
+            const e = elements[fi]
+            if (!e || e.sprite.w <= 0) continue
+            const x = Math.round(e.sprite.w / 2)
+            const y = preset === 'foot' ? e.sprite.h : Math.round(e.sprite.h / 2)
+            elements[fi] = { ...e, offset: { x, y } }
+            changed = true
+          }
+          return changed ? { animation: { ...s.animation, elements } } : s
+        }),
+
+      // 批量删除选中帧（至少保留一帧）
+      removeSelectedFrames: () =>
+        set((s) => {
+          if (s.animation.elements.length <= 1) return s
+          const frames = targetFrames(s.selectedFrameIndices, s.currentFrameIndex, s.animation.elements.length)
+          const toRemove = new Set(frames)
+          const remaining = s.animation.elements.filter((_, i) => !toRemove.has(i))
+          if (remaining.length === 0) return s
+          const elements = remaining.map((e, i) => ({ ...e, index: i }))
+          const totalTicks = elements.reduce((sum, e) => sum + e.duration, 0)
+          const newIndex = Math.min(s.currentFrameIndex, elements.length - 1)
+          const newTick = Math.min(s.currentTick, Math.max(0, totalTicks - 1))
+          return {
+            animation: { ...s.animation, elements, totalTicks },
+            currentFrameIndex: Math.max(0, newIndex),
+            currentTick: newTick,
+            selectedFrameIndices: [Math.max(0, newIndex)],
             selectedIds: [],
             selectedBoxId: null,
             selectedBoxType: null,

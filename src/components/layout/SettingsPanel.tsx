@@ -41,7 +41,7 @@ export default function SettingsPanel() {
           <AccordionTrigger className="text-xs">动画属性</AccordionTrigger>
           <AccordionContent className="flex flex-col gap-2.5 px-1 pb-3">
             <Row label="ID">
-              <Input value={animation.id} onChange={(e) => updateAnimationMeta({ id: e.target.value })} className="h-7" />
+              <Input value={animation.id} readOnly className="h-7 bg-muted text-muted-foreground" title="ID 创建后不可修改，用作文件夹与资源路径" />
             </Row>
             <Row label="名称">
               <Input value={animation.name} onChange={(e) => updateAnimationMeta({ name: e.target.value })} className="h-7" />

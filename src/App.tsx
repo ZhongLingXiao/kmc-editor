@@ -123,21 +123,24 @@ export default function App() {
       }
       if (ctrl && e.key === 'o') {
         e.preventDefault()
-        document.getElementById('menu-open')?.click()
+        document.getElementById('menu-open-project')?.click()
         return
       }
       if (ctrl && e.key === 'n') {
         e.preventDefault()
-        document.getElementById('menu-new')?.click()
+        document.getElementById('menu-new-project')?.click()
         return
       }
 
-      // 删除：有选中对象则删全部选中，否则删当前帧（与方向键"无选中则操作帧"一致）
+      // 删除优先级：选中对象 → 删对象；多帧选中 → 删选中帧；否则删当前帧
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const state = useEditorStore.getState()
         if (state.selectedIds.length > 0) {
           e.preventDefault()
           state.removeSelected()
+        } else if (state.selectedFrameIndices.length > 1) {
+          e.preventDefault()
+          state.removeSelectedFrames()
         } else if (state.currentFrameIndex >= 0 && state.animation.elements.length > 1) {
           e.preventDefault()
           state.removeFrame(state.currentFrameIndex)

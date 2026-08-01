@@ -15,13 +15,17 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { readImageFile } from '../../lib/image'
+import { importImageToProject } from '../../lib/image'
+import { useSpriteBlobUrl } from '../../lib/spriteResolver'
 
 export default function FrameList() {
   const animation = useEditorStore((s) => s.animation)
   // 播放时冻结为 -1：不高亮、不显示底部操作栏，且 currentFrameIndex 变化不触发 re-render
   const currentFrameIndex = useEditorStore((s) => (s.isPlaying ? -1 : s.currentFrameIndex))
   const setFrame = useEditorStore((s) => s.setFrame)
+  const selectedFrameIndices = useEditorStore((s) => (s.isPlaying ? [] : s.selectedFrameIndices))
+  const toggleFrameSelection = useEditorStore((s) => s.toggleFrameSelection)
+  const selectFrameRange = useEditorStore((s) => s.selectFrameRange)
   const removeFrame = useEditorStore((s) => s.removeFrame)
   const duplicateFrame = useEditorStore((s) => s.duplicateFrame)
   const loadSprite = useEditorStore((s) => s.loadSprite)
@@ -34,27 +38,39 @@ export default function FrameList() {
   const spriteInputRef = useRef<HTMLInputElement>(null)
   const pendingFrameIndex = useRef<number>(-1)
 
-  const handleLoadSprite = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLoadSprite = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || pendingFrameIndex.current < 0) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      const dataUrl = reader.result as string
-      const img = new Image()
-      img.onload = () => {
-        loadSprite(pendingFrameIndex.current, file.name, dataUrl, img.width, img.height)
-      }
-      img.onerror = () => toast.error('图片加载失败')
-      img.src = dataUrl
-    }
-    reader.onerror = () => toast.error('图片读取失败')
-    reader.readAsDataURL(file)
     e.target.value = ''
+    try {
+      const info = await importImageToProject(file)
+      loadSprite(pendingFrameIndex.current, info.src, info.w, info.h)
+    } catch (err) {
+      toast.error((err as Error).message || '图片加载失败')
+    }
   }
 
   const startLoadSprite = (index: number) => {
     pendingFrameIndex.current = index
     spriteInputRef.current?.click()
+  }
+
+  const handleFrameClick = (i: number, e: React.MouseEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      toggleFrameSelection(i)
+    } else if (e.shiftKey) {
+      const anchor = useEditorStore.getState().currentFrameIndex
+      if (anchor >= 0) {
+        const [from, to] = anchor <= i ? [anchor, i] : [i, anchor]
+        const indices: number[] = []
+        for (let f = from; f <= to; f++) indices.push(f)
+        selectFrameRange(indices)
+      } else {
+        setFrame(i)
+      }
+    } else {
+      setFrame(i)
+    }
   }
 
   return (
@@ -87,7 +103,7 @@ export default function FrameList() {
         </div>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-xs" onClick={addFrame}>
+            <Button variant="ghost" size="icon-xs" onClick={() => addFrame()}>
               <Plus />
             </Button>
           </TooltipTrigger>
@@ -115,39 +131,33 @@ export default function FrameList() {
             <ContextMenu key={i}>
               <ContextMenuTrigger asChild>
                 <div
-                  onClick={() => setFrame(i)}
+                  onClick={(e) => handleFrameClick(i, e)}
+                  onMouseDown={(e) => { if (e.shiftKey || e.ctrlKey || e.metaKey) e.preventDefault() }}
                   onDrop={async (e) => {
                     e.preventDefault()
                     e.stopPropagation()
                     const file = e.dataTransfer.files[0]
                     if (!file || !file.type.startsWith('image/')) return
                     try {
-                      const info = await readImageFile(file)
-                      useEditorStore.getState().loadSprite(i, info.path, info.data, info.w, info.h)
+                      const info = await importImageToProject(file)
+                      useEditorStore.getState().loadSprite(i, info.src, info.w, info.h)
                       toast.success(`已替换帧 ${i} 的图片`)
-                    } catch {
-                      toast.error('图片加载失败')
+                    } catch (err) {
+                      toast.error((err as Error).message || '图片加载失败')
                     }
                   }}
                   onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy' }}
                   className={cn(
-                    'flex cursor-pointer items-center gap-2 rounded-md hover:bg-accent',
+                    'relative flex cursor-pointer items-center gap-2 rounded-md',
                     frameListMode === 'detail' ? 'px-2 py-1.5' : 'px-2 py-1 text-xs',
-                    i === currentFrameIndex && 'bg-accent'
+                    selectedFrameIndices.includes(i) ? 'bg-accent' : 'hover:bg-accent/60',
+                    i === currentFrameIndex && 'font-medium'
                   )}
                 >
                   {frameListMode === 'detail' ? (
                     <>
                       <span className="w-5 shrink-0 text-xs text-muted-foreground">{i}</span>
-                      <div
-                        className="size-9 shrink-0 rounded border bg-muted"
-                        style={{
-                          backgroundImage: elem.sprite.data ? `url(${elem.sprite.data})` : 'none',
-                          backgroundSize: 'contain',
-                          backgroundRepeat: 'no-repeat',
-                          backgroundPosition: 'center',
-                        }}
-                      />
+                      <SpriteThumb src={elem.sprite.src} />
                       <div className="min-w-0 flex-1 text-xs">
                         <div>{elem.duration} Tick</div>
                         <div className="text-muted-foreground">
@@ -232,5 +242,21 @@ export default function FrameList() {
         </>
       )}
     </div>
+  )
+}
+
+/** 帧缩略图：按 src 从工程目录解析出 blobURL 显示。未加载时显示占位。 */
+function SpriteThumb({ src }: { src: string }) {
+  const blobUrl = useSpriteBlobUrl(src)
+  return (
+    <div
+      className="size-9 shrink-0 rounded border bg-muted"
+      style={{
+        backgroundImage: blobUrl ? `url(${blobUrl})` : 'none',
+        backgroundSize: 'contain',
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'center',
+      }}
+    />
   )
 }
