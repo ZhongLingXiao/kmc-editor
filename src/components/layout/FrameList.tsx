@@ -9,8 +9,11 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubTrigger,
+  ContextMenuSubContent,
 } from '@/components/ui/context-menu'
-import { Plus, Copy, Trash2, ImageUp, LayoutGrid, List, ArrowUp, ArrowDown } from 'lucide-react'
+import { Plus, Copy, CopyPlus, Trash2, ImageUp, LayoutGrid, List, ArrowUp, ArrowDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -32,6 +35,7 @@ export default function FrameList() {
   const addFrame = useEditorStore((s) => s.addFrame)
   const insertFrame = useEditorStore((s) => s.insertFrame)
   const moveFrame = useEditorStore((s) => s.moveFrame)
+  const applyFrameToFrames = useEditorStore((s) => s.applyFrameToFrames)
   const frameListMode = useEditorStore((s) => s.frameListMode)
   const setFrameListMode = useEditorStore((s) => s.setFrameListMode)
 
@@ -190,6 +194,48 @@ export default function FrameList() {
                 <ContextMenuItem onClick={() => duplicateFrame(i)}>
                   <Copy /> 复制帧
                 </ContextMenuItem>
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>
+                    <CopyPlus /> 应用此帧信息到…
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent>
+                    <ContextMenuItem
+                      onClick={() => {
+                        const targets = selectedFrameIndices.filter((idx) => idx !== i)
+                        if (targets.length === 0) {
+                          toast.warning('请先按住 Ctrl/Shift 多选其他帧')
+                          return
+                        }
+                        applyFrameToFrames(i, targets)
+                        toast.success(`已应用到 ${targets.length} 个选中帧`)
+                      }}
+                      disabled={selectedFrameIndices.filter((idx) => idx !== i).length === 0}
+                    >
+                      选中帧
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() => {
+                        const targets = animation.elements.map((_, idx) => idx).filter((idx) => idx !== i)
+                        applyFrameToFrames(i, targets)
+                        toast.success(`已应用到所有其他帧（${targets.length}）`)
+                      }}
+                      disabled={animation.elements.length <= 1}
+                    >
+                      所有其他帧
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() => {
+                        const targets = animation.elements.map((_, idx) => idx).filter((idx) => idx > i)
+                        if (targets.length === 0) return
+                        applyFrameToFrames(i, targets)
+                        toast.success(`已应用到 ${targets.length} 个后续帧`)
+                      }}
+                      disabled={i >= animation.elements.length - 1}
+                    >
+                      所有后续帧
+                    </ContextMenuItem>
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
                 <ContextMenuSeparator />
                 <ContextMenuItem onClick={() => moveFrame(i, i - 1)} disabled={i === 0}>
                   <ArrowUp /> 上移帧

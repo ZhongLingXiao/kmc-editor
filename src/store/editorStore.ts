@@ -213,6 +213,8 @@ interface EditorState {
   setFrame: (index: number) => void
   moveFrame: (from: number, to: number) => void
   updateFrame: (index: number, data: Partial<AnimElement>) => void
+  /** 将源帧的轴点与四类框（受击/攻击/JC/发射点）覆盖应用到目标帧，保留目标帧的 sprite 与 duration */
+  applyFrameToFrames: (sourceIndex: number, targetIndices: number[]) => void
   loadSprite: (index: number, src: string, w: number, h: number) => void
   // 移动播放头到指定 tick（currentFrameIndex 随之派生）
   setCurrentTick: (tick: number) => void
@@ -467,6 +469,32 @@ export const useEditorStore = create<EditorState>()(
         set((s) => {
           if (index < 0 || index >= s.animation.elements.length) return s
           return { currentFrameIndex: index, currentTick: frameStartTick(s.animation.elements, index), selectedIds: [], selectedBoxId: null, selectedBoxType: null, selectedFrameIndices: [index] }
+        }),
+
+      applyFrameToFrames: (sourceIndex, targetIndices) =>
+        set((s) => {
+          const source = s.animation.elements[sourceIndex]
+          if (!source || targetIndices.length === 0) return s
+          const targets = new Set(targetIndices)
+          const elements = s.animation.elements.map((el, i) => {
+            // 跳过非目标帧与源帧自身（避免无意义自覆盖）
+            if (!targets.has(i) || i === sourceIndex) return el
+            return {
+              ...el,
+              offset: { ...source.offset },
+              hurtboxes: source.hurtboxes.map((b) => ({ ...b, id: genId() })),
+              hitboxes: source.hitboxes.map((b) => ({ ...b, id: genId() })),
+              jcboxes: source.jcboxes.map((b) => ({ ...b, id: genId() })),
+              spawnPoints: source.spawnPoints.map((p) => ({ ...p, id: genId() })),
+            }
+          })
+          // duration 未变，totalTicks 不变；清空选区避免选中已被替换的旧框 id
+          return {
+            animation: { ...s.animation, elements },
+            selectedIds: [],
+            selectedBoxId: null,
+            selectedBoxType: null,
+          }
         }),
 
       // 移动播放头：currentFrameIndex 由 tick 派生，可在帧内任意 tick 停留
