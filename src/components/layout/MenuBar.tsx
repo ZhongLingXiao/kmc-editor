@@ -206,7 +206,7 @@ export default function MenuBar() {
 
   return (
     <div className="flex h-9 shrink-0 items-center gap-1 border-b bg-card px-2" ref={menuRef}>
-      <Menubar>
+      <Menubar className="border-0 bg-transparent p-0 shadow-none">
         <MenubarMenu>
           <MenubarTrigger>{t('menu.file')}</MenubarTrigger>
           <MenubarContent>

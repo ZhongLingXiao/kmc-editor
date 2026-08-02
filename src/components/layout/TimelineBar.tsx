@@ -195,7 +195,9 @@ export default function TimelineBar() {
         <Separator orientation="vertical" className="mx-1 h-5" />
 
         <Select value={String(playSpeed)} onValueChange={(v) => setPlaySpeed(parseFloat(v))}>
-          <SelectTrigger className="h-7 w-[88px]"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="h-7 w-[108px] border-0 bg-transparent px-2 shadow-none hover:bg-accent focus-visible:ring-0 focus-visible:border-0">
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="0.25">0.25x</SelectItem>
             <SelectItem value="0.5">0.5x</SelectItem>
