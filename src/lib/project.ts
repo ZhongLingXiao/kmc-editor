@@ -242,12 +242,13 @@ export async function saveAnimJson(
   rootHandle: FileSystemDirectoryHandle,
   animId: string,
   json: string
-): Promise<void> {
+): Promise<FileSystemFileHandle> {
   const fileName = `${animId}.json`
   const fileHandle = await rootHandle.getFileHandle(fileName, { create: true })
   const writable = await fileHandle.createWritable()
   await writable.write(json)
   await writable.close()
+  return fileHandle
 }
 
 /**

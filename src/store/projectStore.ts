@@ -89,7 +89,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ currentAnimId: name })
     // 立即在工作区下创建 json 文件，使新建即可见
     const data = buildExportData(anim, useEditorStore.getState().saveEditorMetadata)
-    await saveAnimJson(workspaceHandle, name, JSON.stringify(data, null, 2))
+    const fileHandle = await saveAnimJson(workspaceHandle, name, JSON.stringify(data, null, 2))
+    // 新建即记入近期列表，与打开行为一致
+    await recordRecentFile(get, set, fileHandle, `${name}.json`)
   },
 
   openAnimation: async (fileHandle) => {
