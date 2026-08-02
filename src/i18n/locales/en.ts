@@ -29,6 +29,9 @@ export const en = {
     showOnion: 'Show Onion Skin',
     animFileDesc: 'Animation File',
     workspace: 'Workspace',
+    workspaceWritable: 'Workspace writable',
+    workspaceNeedsAuth: 'Workspace not authorized, click to authorize',
+    workspaceDenied: 'Workspace permission denied, click to retry',
   },
   lang: {
     label: 'Language',
@@ -48,6 +51,7 @@ export const en = {
     openFailed: 'Cannot open {{name}}',
     saveFirst: 'Please set the workspace directory first (choose when creating animation)',
     permissionDenied: 'Workspace permission denied, cannot save',
+    needOpenAnim: 'No animation is being edited. Create a new one or open an animation file first (Menu > Open).',
     saved: 'Saved',
     saveFailed: 'Save failed',
     savedAs: 'Saved as',

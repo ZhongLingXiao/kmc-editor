@@ -23,6 +23,8 @@ interface ProjectState {
   hasWorkspace: boolean
   /** 当前正在编辑的动画 id（null 表示尚未新建/打开任何动画） */
   currentAnimId: string | null
+  /** 工作区写权限状态：'granted' 可写 / 'prompt' 需授权 / 'denied' 拒绝 / null 无工作区 */
+  permStatus: 'granted' | 'prompt' | 'denied' | null
   /** 近期打开文件列表（持久化在 IndexedDB） */
   recentFiles: RecentFile[]
 
@@ -40,6 +42,8 @@ interface ProjectState {
   clearRecentFiles: () => Promise<void>
   /** 启动时从 IndexedDB 恢复工作区根与近期列表 */
   restoreWorkspace: () => Promise<void>
+  /** 重新查询工作区写权限状态并更新 store */
+  refreshPermStatus: () => Promise<void>
 }
 
 function createAnimationNamed(name: string): AnimationData {
@@ -59,18 +63,26 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   workspaceName: '',
   hasWorkspace: false,
   currentAnimId: null,
+  permStatus: null,
   recentFiles: [],
 
   setWorkspace: async (handle) => {
     await saveWorkspaceHandle(handle)
     clearSpriteCache()
-    set({ workspaceHandle: handle, workspaceName: handle.name, hasWorkspace: true })
+    // showDirectoryPicker(mode:readwrite) 已获授权
+    set({ workspaceHandle: handle, workspaceName: handle.name, hasWorkspace: true, permStatus: 'granted' })
   },
 
   createAnimation: async (name) => {
     const workspaceHandle = get().workspaceHandle
     if (!workspaceHandle) {
       throw new Error('请先设定工作区目录')
+    }
+    // 启动恢复的工作区可能尚未授权，首次新建时请求写权限（弹窗），与保存一致
+    const ok = await ensurePermission(workspaceHandle, 'readwrite')
+    set({ permStatus: ok ? 'granted' : 'denied' })
+    if (!ok) {
+      throw new Error('工作区权限被拒绝')
     }
     const anim = createAnimationNamed(name)
     useEditorStore.getState().setAnimation(anim)
@@ -94,6 +106,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   openRecentFile: async (item) => {
     // 恢复工作区权限（读+写，因为后续保存要写）
     const wsOk = await ensurePermission(item.workspaceHandle, 'readwrite')
+    set({ permStatus: wsOk ? 'granted' : 'denied' })
     if (!wsOk) throw new Error('工作区权限被拒绝')
     // 文件只需读
     const fOk = await ensurePermission(item.fileHandle, 'read')
@@ -135,12 +148,25 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const perm = await (handle as any).queryPermission?.({ mode: 'readwrite' })
     if (perm === 'granted') {
       clearSpriteCache()
-      set({ workspaceHandle: handle, workspaceName: handle.name, hasWorkspace: true })
+      set({ workspaceHandle: handle, workspaceName: handle.name, hasWorkspace: true, permStatus: 'granted' })
     } else if (perm === 'prompt') {
       // 启动时无用户手势，requestPermission 通常被拒；保留句柄，首次操作时再请求
-      set({ workspaceHandle: handle, workspaceName: handle.name, hasWorkspace: true })
+      set({ workspaceHandle: handle, workspaceName: handle.name, hasWorkspace: true, permStatus: 'prompt' })
     }
     // perm === 'denied'：不恢复
+  },
+
+  refreshPermStatus: async () => {
+    const handle = get().workspaceHandle
+    if (!handle) { set({ permStatus: null }); return }
+    const h = handle as any
+    if (!h.queryPermission) { set({ permStatus: 'granted' }); return }
+    try {
+      const p = await h.queryPermission({ mode: 'readwrite' })
+      set({ permStatus: p })
+    } catch {
+      set({ permStatus: null })
+    }
   },
 }))
 

@@ -151,8 +151,9 @@ export default function CanvasArea() {
     e.preventDefault()
     const imgs = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'))
     if (imgs.length === 0) return
-    // 只有当前没有动画在编辑时才提示创建动画（不看是否有图片帧）
+    // 没有动画在编辑时提示并弹新建对话框（跨 session 重开后 currentAnimId 为 null）
     if (!useProjectStore.getState().currentAnimId) {
+      toast.info(t('toast.needOpenAnim'))
       setPendingDropFiles(imgs)
       setNewAnimOpen(true)
       return

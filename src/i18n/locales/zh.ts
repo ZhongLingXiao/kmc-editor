@@ -29,6 +29,9 @@ export const zh = {
     showOnion: '显示洋葱皮',
     animFileDesc: '动画文件',
     workspace: '工作区',
+    workspaceWritable: '工作区可写',
+    workspaceNeedsAuth: '工作区未授权，点击重新授权',
+    workspaceDenied: '工作区权限被拒绝，点击重试',
   },
   lang: {
     label: '语言',
@@ -48,6 +51,7 @@ export const zh = {
     openFailed: '无法打开 {{name}}',
     saveFirst: '请先设定工作区目录（新建动画时选择）',
     permissionDenied: '工作区权限被拒绝，无法保存',
+    needOpenAnim: '未在编辑动画，请新建或先打开动画文件（菜单 > 打开）',
     saved: '已保存',
     saveFailed: '保存失败',
     savedAs: '已另存为',

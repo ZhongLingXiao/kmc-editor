@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -14,7 +15,7 @@ import {
   MenubarSubTrigger,
   MenubarSubContent,
 } from '@/components/ui/menubar'
-import { Undo2, Redo2, Clock, FilePlus2, FolderOpen, Save, SaveAll, FileInput, Download, Settings, Maximize, Globe } from 'lucide-react'
+import { Undo2, Redo2, Clock, FilePlus2, FolderOpen, Save, SaveAll, FileInput, Download, Settings, Maximize, Globe, Check, AlertTriangle } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   DropdownMenu,
@@ -46,7 +47,10 @@ export default function MenuBar() {
   const [newAnimOpen, setNewAnimOpen] = useState(false)
 
   const hasWorkspace = useProjectStore((s) => s.hasWorkspace)
+  const permStatus = useProjectStore((s) => s.permStatus)
+  const refreshPermStatus = useProjectStore((s) => s.refreshPermStatus)
   const workspaceName = useProjectStore((s) => s.workspaceName)
+  const workspaceHandle = useProjectStore((s) => s.workspaceHandle)
   const createAnimation = useProjectStore((s) => s.createAnimation)
   const openAnimation = useProjectStore((s) => s.openAnimation)
   const restoreWorkspace = useProjectStore((s) => s.restoreWorkspace)
@@ -71,6 +75,13 @@ export default function MenuBar() {
   useEffect(() => {
     void restoreWorkspace()
   }, [restoreWorkspace])
+
+  // 点击工作区 Badge 重新请求写权限（用户手势触发弹窗），成功后刷新 store 状态
+  const handleAuthorize = async () => {
+    if (!workspaceHandle) return
+    const ok = await ensurePermission(workspaceHandle, 'readwrite')
+    if (ok) await refreshPermStatus()
+  }
 
   const undo = () => useEditorStore.temporal.getState().undo()
   const redo = () => useEditorStore.temporal.getState().redo()
@@ -137,6 +148,8 @@ export default function MenuBar() {
       setOpenMenu(null)
       return
     }
+    // 授权可能刚发生（prompt→granted），刷新状态让 Badge 同步
+    await useProjectStore.getState().refreshPermStatus()
     useEditorStore.getState().syncMetadata()
     const anim = useEditorStore.getState().animation
     try {
@@ -317,8 +330,24 @@ export default function MenuBar() {
       <div className="flex-1" />
 
       {hasWorkspace && (
-        <Badge variant="outline" className="gap-1 font-normal" title={t('menu.workspace')}>
+        <Badge
+          variant="outline"
+          className={cn(
+            'gap-1 font-normal',
+            permStatus === 'prompt' && 'cursor-pointer border-amber-500/50 text-amber-600 hover:bg-amber-500/10',
+            permStatus === 'denied' && 'border-destructive/50 text-destructive'
+          )}
+          title={
+            permStatus === 'granted' ? t('menu.workspaceWritable')
+            : permStatus === 'prompt' ? t('menu.workspaceNeedsAuth')
+            : permStatus === 'denied' ? t('menu.workspaceDenied')
+            : t('menu.workspace')
+          }
+          onClick={permStatus === 'prompt' ? handleAuthorize : undefined}
+        >
           {workspaceName}
+          {permStatus === 'granted' && <Check className="size-3 text-emerald-600" />}
+          {permStatus === 'prompt' && <AlertTriangle className="size-3" />}
         </Badge>
       )}
 
