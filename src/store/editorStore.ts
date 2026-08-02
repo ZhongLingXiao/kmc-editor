@@ -10,6 +10,9 @@ import {
   OnionSkinSettings,
 } from '../types/animation'
 
+/** 稳定空数组：用于 set 时避免每帧创建新 [] 引用触发订阅者 re-render */
+const EMPTY_IDS: string[] = []
+
 /** 生成唯一 ID */
 function genId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
@@ -503,9 +506,10 @@ export const useEditorStore = create<EditorState>()(
           if (s.animation.elements.length === 0) return { currentTick: 0, currentFrameIndex: -1, selectedIds: [], selectedBoxId: null, selectedBoxType: null, selectedFrameIndices: [] }
           const clamped = Math.max(0, Math.min(s.animation.totalTicks, tick))
           const newFrame = findFrameIndex(s.animation.elements, clamped)
-          // 帧变化时清空选区与帧多选，避免选中别帧对象
+          // 帧变化时清空选区与帧多选，避免选中别帧对象。
+          // 用稳定 EMPTY_IDS 避免每帧创建新 [] 引用触发订阅者 re-render。
           if (newFrame !== s.currentFrameIndex) {
-            return { currentTick: clamped, currentFrameIndex: newFrame, selectedIds: [], selectedBoxId: null, selectedBoxType: null, selectedFrameIndices: [newFrame] }
+            return { currentTick: clamped, currentFrameIndex: newFrame, selectedIds: EMPTY_IDS, selectedBoxId: null, selectedBoxType: null, selectedFrameIndices: [newFrame] }
           }
           return { currentTick: clamped, currentFrameIndex: newFrame }
         }),

@@ -1,4 +1,4 @@
-import { useRef, useState, useMemo, useEffect } from 'react'
+import { useRef, useState, useMemo, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useEditorStore } from '../../store/editorStore'
 import { Button } from '@/components/ui/button'
@@ -80,22 +80,22 @@ export default function TimelineBar() {
     return () => ro.disconnect()
   }, [])
 
-  const handleDurMouseDown = (e: React.MouseEvent, frameIndex: number) => {
+  const handleDurMouseDown = useCallback((e: React.MouseEvent, frameIndex: number) => {
     e.preventDefault()
     e.stopPropagation()
     const elem = animation.elements[frameIndex]
     if (!elem) return
     dragRef.current = { frameIndex, startX: e.clientX, startDur: elem.duration, pxPerTick }
     setDraggingFrame(frameIndex)
-  }
+  }, [animation.elements, pxPerTick])
 
-  const tickFromClientX = (clientX: number): number => {
+  const tickFromClientX = useCallback((clientX: number): number => {
     const scroll = scrollRef.current
     if (!scroll) return 0
     const rect = scroll.getBoundingClientRect()
     const x = clientX - rect.left + scroll.scrollLeft
     return Math.max(0, Math.min(animation.totalTicks, Math.round(x / pxPerTick)))
-  }
+  }, [animation.totalTicks, pxPerTick])
 
   const handlePlayheadMouseDown = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -104,12 +104,12 @@ export default function TimelineBar() {
     setPlaying(false)
   }
 
-  const handleRulerMouseDown = (e: React.MouseEvent) => {
+  const handleRulerMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     setPlaying(false)
     setCurrentTick(tickFromClientX(e.clientX))
     playheadDragRef.current = true
-  }
+  }, [tickFromClientX, setCurrentTick, setPlaying])
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (dragRef.current) {
@@ -163,6 +163,68 @@ export default function TimelineBar() {
     const delta = e.deltaY > 0 ? -2 : 2
     setPxPerTick((prev) => Math.max(minPxPerTick, Math.min(maxPxPerTick, prev + delta)))
   }
+
+  // 播放时冻结帧条高亮：避免每帧 currentFrameIndex 变化触发帧条重渲染
+  const highlightFrame = isPlaying ? -1 : currentFrameIndex
+
+  // 标尺 + 帧条：依赖项排除 currentTick，播放时 useMemo 命中后 React 跳过该子树
+  // reconcile，避免每 tick 重建所有帧 div（帧数多时的主要开销）。
+  const trackContent = useMemo(() => (
+    <>
+      {/* 标尺：刻度铺满，数字在顶部、刻度线在底部 */}
+      <div className="relative h-[18px] cursor-pointer border-b bg-card" onMouseDown={handleRulerMouseDown}>
+        {rulerTicks.map((tick) => (
+          <div key={tick} className="absolute bottom-0 top-0" style={{ left: tick * pxPerTick }}>
+            <span className="absolute left-1 top-0.5 whitespace-nowrap text-[9px] leading-none text-muted-foreground">{tick}</span>
+            <div className="absolute bottom-0 h-2 w-px bg-muted-foreground/40" />
+          </div>
+        ))}
+      </div>
+
+      {/* 帧条区：浅灰底与标尺分区；无帧时显示提示 */}
+      <div className="relative h-[36px] bg-muted/30">
+        {hasFrames ? (
+          animation.elements.map((elem, i) => {
+            const width = elem.duration * pxPerTick
+            const left = frameStartTicks[i] * pxPerTick
+            return (
+              <div
+                key={i}
+                className={cn(
+                  'absolute flex h-full cursor-pointer flex-col justify-center overflow-hidden px-1 select-none bg-background hover:bg-accent',
+                  i === highlightFrame && 'bg-accent'
+                )}
+                style={{ width, minWidth: 1, left }}
+                onClick={() => setFrame(i)}
+              >
+                {width >= 30 && (
+                  <div className={cn('whitespace-nowrap text-[10px]', i === highlightFrame ? 'font-medium text-foreground' : 'text-muted-foreground')}>F{i}</div>
+                )}
+                {width >= 50 && <div className="whitespace-nowrap text-[10px] text-muted-foreground">{elem.duration}t</div>}
+                {/* 帧尾拖拽手柄：8px 透明命中区 + 1px 可见细线，hover/拖拽中变主色 */}
+                <div
+                  className="group absolute right-[-4px] top-0 bottom-0 w-2 cursor-ew-resize"
+                  onMouseDown={(e) => handleDurMouseDown(e, i)}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div
+                    className={cn(
+                      'absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-border transition-colors group-hover:bg-primary',
+                      draggingFrame === i && 'bg-primary'
+                    )}
+                  />
+                </div>
+              </div>
+            )
+          })
+        ) : (
+          <div className="flex h-full items-center justify-center text-[11px] text-muted-foreground">
+            {t('timeline.importToCreate')}
+          </div>
+        )}
+      </div>
+    </>
+  ), [animation.elements, pxPerTick, viewWidth, highlightFrame, draggingFrame, t, rulerTicks, frameStartTicks, timelineWidth, hasFrames, handleDurMouseDown, handleRulerMouseDown, setFrame])
 
   return (
     <div className="flex shrink-0 flex-col border-t bg-card" onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
@@ -230,58 +292,7 @@ export default function TimelineBar() {
 
       <div ref={scrollRef} className={cn("relative h-[54px] overflow-y-hidden", canScroll ? "overflow-x-auto" : "overflow-x-hidden")} onWheel={handleWheel}>
         <div className="relative w-full" style={{ minWidth: timelineWidth }}>
-          {/* 标尺：刻度铺满，数字在顶部、刻度线在底部 */}
-          <div className="relative h-[18px] cursor-pointer border-b bg-card" onMouseDown={handleRulerMouseDown}>
-            {rulerTicks.map((tick) => (
-              <div key={tick} className="absolute bottom-0 top-0" style={{ left: tick * pxPerTick }}>
-                <span className="absolute left-1 top-0.5 whitespace-nowrap text-[9px] leading-none text-muted-foreground">{tick}</span>
-                <div className="absolute bottom-0 h-2 w-px bg-muted-foreground/40" />
-              </div>
-            ))}
-          </div>
-
-          {/* 帧条区：浅灰底与标尺分区；无帧时显示提示 */}
-          <div className="relative h-[36px] bg-muted/30">
-            {hasFrames ? (
-              animation.elements.map((elem, i) => {
-                const width = elem.duration * pxPerTick
-                const left = frameStartTicks[i] * pxPerTick
-                return (
-                  <div
-                    key={i}
-                    className={cn(
-                      'absolute flex h-full cursor-pointer flex-col justify-center overflow-hidden px-1 select-none bg-background hover:bg-accent',
-                      i === currentFrameIndex && 'bg-accent'
-                    )}
-                    style={{ width, minWidth: 1, left }}
-                    onClick={() => setFrame(i)}
-                  >
-                    {width >= 30 && (
-                      <div className={cn('whitespace-nowrap text-[10px]', i === currentFrameIndex ? 'font-medium text-foreground' : 'text-muted-foreground')}>F{i}</div>
-                    )}
-                    {width >= 50 && <div className="whitespace-nowrap text-[10px] text-muted-foreground">{elem.duration}t</div>}
-                    {/* 帧尾拖拽手柄：8px 透明命中区 + 1px 可见细线，hover/拖拽中变主色 */}
-                    <div
-                      className="group absolute right-[-4px] top-0 bottom-0 w-2 cursor-ew-resize"
-                      onMouseDown={(e) => handleDurMouseDown(e, i)}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div
-                        className={cn(
-                          'absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-border transition-colors group-hover:bg-primary',
-                          draggingFrame === i && 'bg-primary'
-                        )}
-                      />
-                    </div>
-                  </div>
-                )
-              })
-            ) : (
-              <div className="flex h-full items-center justify-center text-[11px] text-muted-foreground">
-                {t('timeline.importToCreate')}
-              </div>
-            )}
-          </div>
+          {trackContent}
 
           {hasFrames && (
             <div className="pointer-events-none absolute bottom-0 top-0 z-10 w-0.5" style={{ left: currentTick * pxPerTick }}>

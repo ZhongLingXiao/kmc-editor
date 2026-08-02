@@ -7,6 +7,9 @@ import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Info, Footprints, AlignCenter, Trash2 } from 'lucide-react'
 
+// 稳定空数组：播放时 selector 返回它，避免每帧新数组引用触发 re-render
+const EMPTY_FRAMES: number[] = []
+
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2">
@@ -66,11 +69,14 @@ function StatRow({ label, value }: { label: string; value: React.ReactNode }) {
 export default function Inspector() {
   const { t } = useTranslation()
   const animation = useEditorStore((s) => s.animation)
-  const currentFrameIndex = useEditorStore((s) => s.currentFrameIndex)
+  const isPlaying = useEditorStore((s) => s.isPlaying)
+  // 播放时冻结 Inspector：不跟随每帧重渲染（性能优化），暂停后恢复显示当前帧
+  const currentFrameIndex = useEditorStore((s) => (s.isPlaying ? -1 : s.currentFrameIndex))
   const selectedBoxId = useEditorStore((s) => s.selectedBoxId)
   const selectedBoxType = useEditorStore((s) => s.selectedBoxType)
   const selectedIds = useEditorStore((s) => s.selectedIds)
-  const selectedFrameIndices = useEditorStore((s) => s.selectedFrameIndices)
+  // 播放时冻结帧多选：避免每帧 [newFrame] 新数组触发 re-render
+  const selectedFrameIndices = useEditorStore((s) => (s.isPlaying ? EMPTY_FRAMES : s.selectedFrameIndices))
   const setSelectedField = useEditorStore((s) => s.setSelectedField)
   const renameSelectedSpawnPoint = useEditorStore((s) => s.renameSelectedSpawnPoint)
   const setSelectedFramesDuration = useEditorStore((s) => s.setSelectedFramesDuration)
@@ -217,7 +223,7 @@ export default function Inspector() {
           </>
         )}
 
-        {!frame && <p className="text-xs text-muted-foreground">{t('inspector.noCurrentFrame')}</p>}
+        {!frame && <p className="text-xs text-muted-foreground">{isPlaying ? t('inspector.playing') : t('inspector.noCurrentFrame')}</p>}
       </div>
     </div>
   )

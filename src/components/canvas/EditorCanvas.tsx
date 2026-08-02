@@ -3,7 +3,7 @@ import { Stage, Layer, Rect, Line, Image as KonvaImage, Group, Circle, Text, Tra
 import { useEditorStore } from '../../store/editorStore'
 import { COLORS, Box } from '../../types/animation'
 import { toScreen, toGame, toScreenSize, toGameSize } from '../../utils/coordinate'
-import { getSprite, useSprite } from '../../lib/spriteResolver'
+import { useSprite, getSpriteRegion } from '../../lib/spriteResolver'
 import Konva from 'konva'
 
 export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 'left' }) {
@@ -23,7 +23,8 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
 
   const frame = animation.elements[currentFrameIndex]
 
-  const currentSprite = useSprite(frame?.sprite.src || '')
+  // 监听精灵图加载完成以触发重渲染（渲染本身用预裁剪的 region canvas）
+  useSprite(frame?.sprite.src || '')
 
   const transformerRef = useRef<Konva.Transformer>(null)
   const isDrawing = useRef(false)
@@ -126,7 +127,9 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
       tr.nodes([])
     }
     tr.getLayer()?.batchDraw()
-  }, [selectedIds, frame, animation.pushbox.stand, flipped])
+  // 仅在选择变化/翻转时重挂 Transformer，不依赖 frame：节点位置由 Konva 内部维护，
+  // 切帧时 setFrame 会清空 selectedIds（触发本 effect），无需 frame 依赖导致每帧重跑。
+  }, [selectedIds, flipped])
 
   type SelectableType = 'hurtbox' | 'hitbox' | 'jcbox' | 'pushbox' | 'spawnpoint'
   type SelectionCandidate = { type: SelectableType; id: string; priority: number }
@@ -387,12 +390,14 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
 
   // 渲染精灵图
   function renderSprite(
-    img: HTMLImageElement | undefined,
     elem: typeof frame,
     opacity: number = 1,
     interactive: boolean = false
   ): React.ReactNode {
-    if (!img || !elem) return null
+    if (!elem) return null
+    // 预裁剪：用已裁好的小 region canvas，避免每帧 drawImage 大 sheet crop
+    const region = getSpriteRegion(elem.sprite.src, elem.sprite.x, elem.sprite.y, elem.sprite.w, elem.sprite.h)
+    if (!region) return null
     // 翻转预览：以 Root(originX) 为镜像轴，sprite 用 scaleX=-1。
     // 推导：翻转后 pivot 仍需落在 originX，故 x = originX + offset.x*scale。
     const x = flipped ? originX + elem.offset.x * scale : originX - elem.offset.x * scale
@@ -401,8 +406,7 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
 
     return (
       <KonvaImage
-        image={img}
-        crop={{ x: elem.sprite.x, y: elem.sprite.y, width: elem.sprite.w, height: elem.sprite.h }}
+        image={region}
         x={x}
         y={y}
         width={elem.sprite.w * scale}
@@ -484,8 +488,8 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
 
     // 精灵图：先画原图，再叠一个设定颜色的半透明矩形做整体着色
     if (onionSkin.showSprite && elem.sprite.src) {
-      const img = getSprite(elem.sprite.src)
-      if (img) {
+      const region = getSpriteRegion(elem.sprite.src, elem.sprite.x, elem.sprite.y, elem.sprite.w, elem.sprite.h)
+      if (region) {
         const x = flipped ? originX + elem.offset.x * scale : originX - elem.offset.x * scale
         const y = originY - elem.offset.y * scale
         const w = elem.sprite.w * scale
@@ -494,8 +498,7 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
           <Group key="sprite-group" opacity={opacity} listening={false}>
             <KonvaImage
               key="sprite-img"
-              image={img}
-              crop={{ x: elem.sprite.x, y: elem.sprite.y, width: elem.sprite.w, height: elem.sprite.h }}
+              image={region}
               x={x}
               y={y}
               width={w}
@@ -616,18 +619,17 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
     )
   }
 
-  function renderRootOrigin() {
-    return (
-      <Group listening={false}>
-        {/* 固定角色坐标轴：水平线即地面 / X 轴，垂直线即 Root 的 Y 轴。 */}
-        <Line points={[0, originY, canvasWidth, originY]} stroke={COLORS.origin} strokeWidth={1.5} opacity={0.8} />
-        <Line points={[originX, 0, originX, canvasHeight]} stroke={COLORS.origin} strokeWidth={1.5} opacity={0.8} />
-        <Circle x={originX} y={originY} radius={4} fill={COLORS.origin} />
-        <Text x={8} y={originY - 16} text="Ground / X axis (Y=0)" fontSize={10} fill={COLORS.origin} />
-        <Text x={originX + 8} y={originY + 4} text="Root (0,0)" fontSize={10} fill={COLORS.origin} />
-      </Group>
-    )
-  }
+  // 固定角色坐标轴：不依赖 frame，播放时 useMemo 命中，跳过该子树 reconcile
+  const rootOriginNode = useMemo(() => (
+    <Group listening={false}>
+      {/* 固定角色坐标轴：水平线即地面 / X 轴，垂直线即 Root 的 Y 轴。 */}
+      <Line points={[0, originY, canvasWidth, originY]} stroke={COLORS.origin} strokeWidth={1.5} opacity={0.8} />
+      <Line points={[originX, 0, originX, canvasHeight]} stroke={COLORS.origin} strokeWidth={1.5} opacity={0.8} />
+      <Circle x={originX} y={originY} radius={4} fill={COLORS.origin} />
+      <Text x={8} y={originY - 16} text="Ground / X axis (Y=0)" fontSize={10} fill={COLORS.origin} />
+      <Text x={originX + 8} y={originY + 4} text="Root (0,0)" fontSize={10} fill={COLORS.origin} />
+    </Group>
+  ), [originX, originY, canvasWidth, canvasHeight])
 
   // 网格
   const gridLines = useMemo(() => {
@@ -654,7 +656,7 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
       <Stage width={canvasWidth} height={canvasHeight}>
         <Layer>
           {gridLines}
-          {renderRootOrigin()}
+          {rootOriginNode}
         </Layer>
       </Stage>
     )
@@ -681,7 +683,7 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
 
       {/* 当前精灵：图片对齐模式下可直接拖拽，红色 Root (0,0) 始终固定 */}
       <Layer>
-        {renderSprite(currentSprite, frame, 1, true)}
+        {renderSprite(frame, 1, true)}
       </Layer>
 
       {/* 洋葱皮 - 后帧（从近到远，红色，透明度递减） */}
@@ -797,7 +799,7 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
       {/* 坐标参考层（最顶层）：黄色是图片局部原点，红色是固定角色根点 */}
       <Layer>
         {renderImageOrigin()}
-        {renderRootOrigin()}
+        {rootOriginNode}
       </Layer>
     </Stage>
   )

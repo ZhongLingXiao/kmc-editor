@@ -24,13 +24,16 @@ import { useSprite } from '../../lib/spriteResolver'
 import type { SpriteSource } from '../../types/animation'
 import SpriteSheetDialog, { type SpriteSheetResult } from './SpriteSheetDialog'
 
+// 稳定空数组：播放时 selector 返回它，避免每帧新 [] 引用触发 re-render
+const EMPTY_FRAMES: number[] = []
+
 export default function FrameList() {
   const { t } = useTranslation()
   const animation = useEditorStore((s) => s.animation)
   // 播放时冻结为 -1：不高亮、不显示底部操作栏，且 currentFrameIndex 变化不触发 re-render
   const currentFrameIndex = useEditorStore((s) => (s.isPlaying ? -1 : s.currentFrameIndex))
   const setFrame = useEditorStore((s) => s.setFrame)
-  const selectedFrameIndices = useEditorStore((s) => (s.isPlaying ? [] : s.selectedFrameIndices))
+  const selectedFrameIndices = useEditorStore((s) => (s.isPlaying ? EMPTY_FRAMES : s.selectedFrameIndices))
   const toggleFrameSelection = useEditorStore((s) => s.toggleFrameSelection)
   const selectFrameRange = useEditorStore((s) => s.selectFrameRange)
   const removeFrame = useEditorStore((s) => s.removeFrame)

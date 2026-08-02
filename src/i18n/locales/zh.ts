@@ -141,6 +141,7 @@ export const zh = {
     size: '尺寸',
     noSprite: '尚未载入精灵图。',
     noCurrentFrame: '无当前帧',
+    playing: '播放中…',
     selectedN: '已选 {{count}} 帧',
   },
   outline: {

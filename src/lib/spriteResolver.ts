@@ -16,6 +16,10 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>()
 
+// 预裁剪缓存：key = `${src}|${x},${y},${w},${h}`，value = 裁好的小 canvas。
+// 渲染时直接 drawImage 小 canvas，避免每帧从大 sheet 反复 crop。
+const regionCache = new Map<string, HTMLCanvasElement>()
+
 /** 同步获取缓存的精灵图，未加载或加载中返回 undefined，并触发异步加载 */
 export function getSprite(src: string): HTMLImageElement | undefined {
   if (!src) return undefined
@@ -32,6 +36,34 @@ export function getSprite(src: string): HTMLImageElement | undefined {
   cache.set(src, { image: undefined, blobUrl: null, error: false })
   void loadSprite(src, rootHandle)
   return undefined
+}
+
+/**
+ * 预裁剪：取 sheet 中 {x,y,w,h} 区域裁到独立小 canvas 并缓存。
+ * 渲染时用小 canvas 而非大图 crop，避免每帧 drawImage 大图。
+ * 大图未加载时返回 undefined（getSprite 会触发加载，加载完靠 useSprite 事件重渲染）。
+ */
+export function getSpriteRegion(
+  src: string,
+  x: number,
+  y: number,
+  w: number,
+  h: number
+): HTMLCanvasElement | undefined {
+  if (!src || w <= 0 || h <= 0) return undefined
+  const key = `${src}|${x},${y},${w},${h}`
+  const cached = regionCache.get(key)
+  if (cached) return cached
+  const img = getSprite(src)
+  if (!img) return undefined
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(w))
+  canvas.height = Math.max(1, Math.round(h))
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return undefined
+  ctx.drawImage(img, x, y, w, h, 0, 0, w, h)
+  regionCache.set(key, canvas)
+  return canvas
 }
 
 async function loadSprite(src: string, rootHandle: FileSystemDirectoryHandle) {
@@ -107,4 +139,5 @@ export function clearSpriteCache(): void {
     if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl)
   }
   cache.clear()
+  regionCache.clear()
 }

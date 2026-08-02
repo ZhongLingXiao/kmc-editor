@@ -141,6 +141,7 @@ export const en = {
     size: 'Size',
     noSprite: 'No sprite loaded.',
     noCurrentFrame: 'No current frame',
+    playing: 'Playing…',
     selectedN: '{{count}} frames selected',
   },
   outline: {
