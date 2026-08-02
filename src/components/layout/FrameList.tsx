@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useEditorStore } from '../../store/editorStore'
 import { Button } from '@/components/ui/button'
@@ -20,7 +20,7 @@ import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { importImageToProject, importSpritesBatch } from '../../lib/image'
-import { useSprite } from '../../lib/spriteResolver'
+import { useSpriteBlobUrl, getSprite } from '../../lib/spriteResolver'
 import type { SpriteSource } from '../../types/animation'
 import SpriteSheetDialog, { type SpriteSheetResult } from './SpriteSheetDialog'
 
@@ -319,21 +319,29 @@ export default function FrameList() {
   )
 }
 
-/** 帧缩略图：按 src 从工程目录解析出 blobURL 显示。未加载时显示占位。 */
+/** 帧缩略图：用 CSS 背景切片显示 sheet 区域，避免 canvas 合成层开销（90 帧时显著降合成层数量）。 */
 function SpriteThumb({ sprite }: { sprite: SpriteSource }) {
-  const img = useSprite(sprite.src)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.clearRect(0, 0, 36, 36)
-    if (!img || !sprite.w || !sprite.h) return
-    const scale = Math.min(36 / sprite.w, 36 / sprite.h)
-    const dw = sprite.w * scale
-    const dh = sprite.h * scale
-    ctx.drawImage(img, sprite.x, sprite.y, sprite.w, sprite.h, (36 - dw) / 2, (36 - dh) / 2, dw, dh)
-  }, [img, sprite.src, sprite.x, sprite.y, sprite.w, sprite.h])
-  return <canvas ref={canvasRef} width={36} height={36} className="size-9 shrink-0 rounded border bg-muted" />
+  const blobUrl = useSpriteBlobUrl(sprite.src)
+  if (!blobUrl || !sprite.w || !sprite.h) return <div className="size-9 shrink-0 rounded border bg-muted" />
+  const img = getSprite(sprite.src)
+  if (!img) return <div className="size-9 shrink-0 rounded border bg-muted" />
+  const scale = Math.min(36 / sprite.w, 36 / sprite.h)
+  const dw = sprite.w * scale
+  const dh = sprite.h * scale
+  return (
+    <div className="size-9 shrink-0 overflow-hidden rounded border bg-muted relative">
+      <div
+        className="absolute"
+        style={{
+          width: dw,
+          height: dh,
+          left: (36 - dw) / 2,
+          top: (36 - dh) / 2,
+          backgroundImage: `url(${blobUrl})`,
+          backgroundSize: `${img.naturalWidth * scale}px ${img.naturalHeight * scale}px`,
+          backgroundPosition: `${-sprite.x * scale}px ${-sprite.y * scale}px`,
+        }}
+      />
+    </div>
+  )
 }
