@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
-import { FlipHorizontal, Grid3x3, Layers, SquareStack } from 'lucide-react'
+import { FlipHorizontal, Grid3x3, Layers, Palette, SquareStack } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { toGame } from '../../utils/coordinate'
 import { COLORS, type ShowLayers } from '../../types/animation'
@@ -40,6 +40,16 @@ const BOX_GROUPS: { key: keyof ShowLayers; labelKey: string; color: string }[] =
 ]
 
 const GRID_PRESETS = [8, 16, 20, 32, 64]
+
+// 画布背景色预设：null = 跟随主题（bg-muted）
+const BG_PRESETS: { labelKey: string; val: string | null }[] = [
+  { labelKey: 'preview.bgDefault', val: null },
+  { labelKey: 'preview.bgWhite', val: '#ffffff' },
+  { labelKey: 'preview.bgLight', val: '#c8c8c8' },
+  { labelKey: 'preview.bgGray', val: '#6e6e6e' },
+  { labelKey: 'preview.bgDark', val: '#2a2a2a' },
+  { labelKey: 'preview.bgBlack', val: '#000000' },
+]
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -78,12 +88,15 @@ export default function PreviewShelf({
   const updateOnionSkin = useEditorStore((s) => s.updateOnionSkin)
   const gridSize = useEditorStore((s) => s.gridSize)
   const setGridSize = useEditorStore((s) => s.setGridSize)
+  const canvasBgColor = useEditorStore((s) => s.canvasBgColor)
+  const setCanvasBgColor = useEditorStore((s) => s.setCanvasBgColor)
   const flipped = facing === 'left'
 
   const [coord, setCoord] = useState<{ x: number; y: number } | null>(null)
   const [gridOpen, setGridOpen] = useState(false)
   const [boxesOpen, setBoxesOpen] = useState(false)
   const [onionOpen, setOnionOpen] = useState(false)
+  const [bgOpen, setBgOpen] = useState(false)
 
   const allBoxesOn = BOX_KEYS.every((k) => showLayers[k])
 
@@ -323,7 +336,56 @@ export default function PreviewShelf({
         </PopoverContent>
       </Popover>
 
-      <Separator orientation="vertical" className="mx-1 h-5" />
+      <Separator orientation="vertical" className="mx-1 !h-6 !bg-muted-foreground/40" />
+
+      {/* 画布背景色：预设色板 + 自定义 */}
+      <Popover open={bgOpen} onOpenChange={setBgOpen}>
+        <PopoverAnchor asChild>
+          <span className="inline-flex">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon-sm" onClick={() => setBgOpen(true)}>
+                  <Palette />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('preview.bgColor')}</TooltipContent>
+            </Tooltip>
+          </span>
+        </PopoverAnchor>
+        <PopoverContent className="w-44" align="start">
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-medium">{t('preview.bgColor')}</span>
+            <div className="flex flex-wrap gap-1.5">
+              {BG_PRESETS.map((c) => (
+                <Tooltip key={c.labelKey}>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setCanvasBgColor(c.val)}
+                      className={cn(
+                        'size-6 rounded border',
+                        canvasBgColor === c.val ? 'border-primary ring-1 ring-primary' : 'border-border',
+                        c.val === null && 'border-dashed bg-muted'
+                      )}
+                      style={c.val ? { background: c.val } : undefined}
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent>{t(c.labelKey)}</TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+            <Separator className="my-0.5" />
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">{t('preview.bgCustom')}</span>
+              <input
+                type="color"
+                value={canvasBgColor ?? '#808080'}
+                onChange={(e) => setCanvasBgColor(e.target.value)}
+                className="size-6 cursor-pointer rounded border bg-transparent"
+              />
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
 
       {/* 光标逻辑坐标读数：pointer-events-none 让鼠标事件穿透回画布容器，避免悬停读数区时坐标冻结 */}
       <div className="pointer-events-none flex h-7 min-w-[104px] items-center px-1.5 font-mono text-[11px] text-muted-foreground">

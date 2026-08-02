@@ -40,6 +40,7 @@ export default function CanvasArea() {
   const animation = useEditorStore((s) => s.animation)
   const showLayers = useEditorStore((s) => s.showLayers)
   const toggleLayer = useEditorStore((s) => s.toggleLayer)
+  const canvasBgColor = useEditorStore((s) => s.canvasBgColor)
 
   const [isPanning, setIsPanning] = useState(false)
   const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 })
@@ -212,7 +213,7 @@ export default function CanvasArea() {
   const cursor = isPanning ? 'grabbing' : spaceHeld ? 'grab' : 'default'
 
   return (
-    <div className="relative flex min-w-0 flex-1 flex-col bg-muted">
+    <div className="relative flex min-w-0 flex-1 flex-col bg-muted" style={canvasBgColor ? { backgroundColor: canvasBgColor } : undefined}>
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div

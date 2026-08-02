@@ -203,6 +203,7 @@ interface EditorState {
   panX: number // 画布平移偏移 X
   panY: number // 画布平移偏移 Y
   gridSize: number // 网格单元尺寸（逻辑像素，编辑器态，不进撤销历史）
+  canvasBgColor: string | null // 画布背景色（编辑器态，null = 用主题 bg-muted）
 
   // === Actions: 动画管理 ===
   setAnimation: (data: AnimationData) => void
@@ -278,6 +279,7 @@ interface EditorState {
   setPan: (x: number, y: number) => void
   resetView: () => void
   setGridSize: (size: number) => void
+  setCanvasBgColor: (color: string | null) => void
 }
 
 export const useEditorStore = create<EditorState>()(
@@ -333,6 +335,7 @@ export const useEditorStore = create<EditorState>()(
       panX: 0,
       panY: 0,
       gridSize: 20,
+      canvasBgColor: null,
 
       // === 动画管理 ===
       setAnimation: (data) => {
@@ -1010,6 +1013,7 @@ export const useEditorStore = create<EditorState>()(
           originY: s.canvasHeight * 0.75,
         })),
       setGridSize: (size) => set({ gridSize: Math.max(2, Math.round(size)) }),
+      setCanvasBgColor: (color) => set({ canvasBgColor: color }),
     }),
     {
       // 撤销/重做配置：只追踪动画数据变化
