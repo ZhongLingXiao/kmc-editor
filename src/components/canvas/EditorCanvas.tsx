@@ -30,6 +30,8 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
   const isDrawing = useRef(false)
   const drawStart = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
   const [drawPreview, setDrawPreview] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  // Shift 拖拽精灵时的轴向辅助线：axis='x' 水平移动（y 冻结），'y' 垂直移动（x 冻结）
+  const [alignGuide, setAlignGuide] = useState<{ axis: 'x' | 'y'; pos: number } | null>(null)
 
   // 所有选中节点的 ref（key=id）：用于多选实时平移与 Transformer 绑定
   const selectedNodesRef = useRef(new Map<string, Konva.Node>())
@@ -440,6 +442,7 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
           if (!e.evt.shiftKey) {
             if (lockedAxis.current !== null) {
               lockedAxis.current = null
+              setAlignGuide(null)
               container?.style.setProperty('cursor', 'grabbing')
             }
             return
@@ -458,12 +461,17 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
           }
           if (lockedAxis.current === 'x') {
             e.target.y(start.y) // 冻结垂直，只允许水平移动
+            const pointer = e.target.getStage()?.getPointerPosition()
+            if (pointer) setAlignGuide({ axis: 'x', pos: pointer.y })
           } else {
             e.target.x(start.x) // 冻结水平，只允许垂直移动
+            const pointer = e.target.getStage()?.getPointerPosition()
+            if (pointer) setAlignGuide({ axis: 'y', pos: pointer.x })
           }
         }}
         onDragEnd={(e) => {
           e.target.getStage()?.container().style.setProperty('cursor', 'grab')
+          setAlignGuide(null)
           // 直接拖动图片；反向换算为图片内部的 Sprite Pivot。
           const pivotX = (originX - e.target.x()) / scale
           const pivotY = (originY - e.target.y()) / scale
@@ -800,6 +808,14 @@ export default function EditorCanvas({ facing = 'right' }: { facing?: 'right' | 
       <Layer>
         {renderImageOrigin()}
         {rootOriginNode}
+        {/* Shift 拖拽精灵的轴向辅助线：沿移动方向，经过鼠标当前位置 */}
+        {alignGuide && (
+          alignGuide.axis === 'x' ? (
+            <Line points={[0, alignGuide.pos, canvasWidth, alignGuide.pos]} stroke={COLORS.anchor} strokeWidth={1} dash={[4, 4]} listening={false} />
+          ) : (
+            <Line points={[alignGuide.pos, 0, alignGuide.pos, canvasHeight]} stroke={COLORS.anchor} strokeWidth={1} dash={[4, 4]} listening={false} />
+          )
+        )}
       </Layer>
     </Stage>
   )
