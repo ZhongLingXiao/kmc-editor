@@ -181,16 +181,17 @@ local Game = {
 
 #### 实体管理：发射物放全局还是 Player？
 
-这是个关键架构问题。先区分两种东西：
+这是个关键架构问题。先区分三种东西：
 
 | 类型 | 例子 | 特点 | 放哪 |
 |---|---|---|---|
-| **围绕角色的效果** | 维吉尔的剑阵（幻影剑围绕身体） | 和角色绑定，角色动了它跟着动 | **Player 的属性** |
-| **已发射的独立实体** | 飞出去的幻影剑、子弹 | 飞出去后独立飞行，角色死了它还在飞 | **全局实体管理** |
+| **纯视觉属性** | 蓄力蓝光（剑上冒蓝光） | 只是角色的一个标志，没有独立逻辑 | **Player 的属性** |
+| **有状态机的跟随实体** | 维吉尔的剑阵（幻影剑围绕身体） | 跟着角色走，但有旋转/攻击/消失等状态 | **`EntityManager.helpers`（Helper + `follow_owner`）** |
+| **已发射的独立实体** | 飞出去的幻影剑、子弹 | 飞出去后独立飞行，角色死了它还在飞 | **全局实体管理（Projectile）** |
 
-**剑阵**是角色状态的视觉表现——角色移动它跟着移动，角色消失它也消失。放在 Player 里。
+**剑阵**虽然跟着角色走，但它有多个状态（浮空旋转 / 攻击 / 消失），需要独立状态机，所以用 Helper 放 `EntityManager.helpers`，靠 `follow_owner` 跟随角色（详见角色教程 Part 2 §9.7，本节后面也会展开）。
 
-**飞出去的幻影剑**是独立实体——飞出去后角色管不了它，它自己飞、自己碰撞、自己消失。放在全局实体管理里。
+**飞出去的幻影剑**是独立实体——飞出去后角色管不了它，它自己飞、自己碰撞、自己消失。放在全局实体管理（Projectile）里。
 
 **为什么不放 Player**：发射物飞出去后是独立实体。跨角色碰撞需要统一管理（player1 的幻影剑打 enemy）。角色死了发射物应该继续飞。MUGEN、Unity、鬼泣都是全局管理 + owner 引用。
 
@@ -244,63 +245,48 @@ end
 - 伤害归属（谁打的）
 - 角色销毁时可选清理其发射物
 
+> **注意**：下面只演示如何通过 `owner` 排除发射者。`math.abs(proj.x - target.x) < 20` 只是便于说明的 X 轴距离占位判断，并不是完整的碰撞检测；它没有判断 Y 轴，也没有考虑 hitbox / hurtbox 的尺寸。正式实现请使用角色教程 Part 2 第七章 §7.4 的二维 AABB 检测，并参考 §9.5 的 `projectile hitbox vs target hurtbox` 流程。
+
 ```lua
--- 碰撞检测：忽略自己
+-- 简化示例：只演示碰撞检测时忽略发射者
 function checkCollision(proj, target)
     if proj.owner == target then return false end  -- 不打自己
-    return math.abs(proj.x - target.x) < 20
+    return math.abs(proj.x - target.x) < 20        -- 仅为 X 轴占位判断，非正式碰撞检测
 end
 ```
 
-**剑阵（围绕角色的效果）放 Player**：
+**剑阵（围绕角色的效果）用 Helper + `follow_owner`，不放 Player**：
+
+剑阵（维吉尔 Spiral Swords）虽然跟着角色走，但它有多个状态（浮空旋转 / 攻击 / 消失），需要独立的状态机，所以不放 Player 属性，而是作为 Helper 放 `EntityManager.helpers`，用 `follow_owner` 标志跟随角色。完整实现见角色教程 Part 2 §9.7 Helper。
 
 ```lua
-local Player = {
-    -- ...其他属性...
-
-    -- 围绕角色的效果（和角色绑定，角色动它跟着动）
-    sword_circle = {
-        active = false,      -- 是否激活
-        count = 5,           -- 剑的数量
-        radius = 40,         -- 围绕半径
-        angle = 0,           -- 旋转角度
-    },
-}
-
--- 在 updateGlobal 里更新剑阵位置（围绕角色旋转）
-function Player:updateGlobal(dt, buf)
-    -- ...朝向、锁定...
-    if self.sword_circle.active then
-        self.sword_circle.angle = self.sword_circle.angle + 0.05
-    end
-end
-
--- 在 draw 里画剑阵（跟随角色位置）
-function Player.draw(player)
-    drawCharacterAnim(player)
-    if player.sword_circle.active then
-        for i = 1, player.sword_circle.count do
-            local a = player.sword_circle.angle + (i / player.sword_circle.count) * math.pi * 2
-            local sx = player.x + math.cos(a) * player.sword_circle.radius
-            local sy = player.y + math.sin(a) * player.sword_circle.radius
-            drawSprite("summoned_sword", sx, sy)
-        end
-    end
-end
+-- 剑阵是 Helper（有状态机的独立实体），不是 Player 属性
+-- 创建时 follow_owner = true，onUpdate 里 h.x = h.owner.x 跟随角色
+EntityManager.spawnHelper("spiral_sword", player.x, player.y, player.facing, player)
 ```
+
+```lua
+-- Helper 状态机（Part 2 §9.7）：
+--   状态0 浮空旋转：follow_owner=true，位置=owner 位置，动画驱动旋转（不用 cos/sin）
+--   状态1 攻击：激活 hitbox
+--   状态2 消失：播完消失动画后 destroySelf
+-- 详见 Part 2 §9.7，这里不重复
+```
+
+> ⚠ 不要把剑阵做成 `player.sword_circle` 属性 + 数学旋转（cos/sin）。那种写法只能画纯视觉，做不了攻击/消失等状态切换，也和 Part 2 §9.7 的正式实现冲突。Player 属性只留给"纯视觉属性"（如下面的蓄力蓝光）。
 
 **完整分类**：
 
 | 东西 | 例子 | 放哪 | 原因 |
 |---|---|---|---|
-| 剑阵 | 围绕角色的幻影剑 | `player.sword_circle` | 和角色绑定，角色动了跟着动 |
-| 蓄力蓝光 | 剑上冒蓝光 | `player.charging` 标志 | 角色的视觉属性 |
+| 剑阵 | 围绕角色的幻影剑（Spiral Swords） | `EntityManager.helpers`（Helper + `follow_owner`） | 有状态机（旋转/攻击/消失），跟随角色但需独立逻辑，详见 Part 2 §9.7 |
+| 蓄力蓝光 | 剑上冒蓝光 | `player.charging` 标志 | 纯视觉属性，无独立逻辑 |
 | 飞出的幻影剑 | 已发射的独立飞行 | `EntityManager.projectiles` | 独立实体，全局管理 |
 | 子弹 | 开枪射出的 | `EntityManager.projectiles` | 独立实体 |
 | 命中火花 | 打中时的特效 | `EntityManager.effects` | 独立特效，自己消失 |
 | 敌人 | 杂兵 | `EntityManager.enemies` | 独立实体 |
 
-**核心原则**：**和角色绑定的效果放 Player，独立飞行的实体放全局 EntityManager。**
+**核心原则**：**纯视觉属性放 Player，有独立逻辑的实体（含跟随的剑阵）放 EntityManager。跟随角色用 Helper 的 `follow_owner`，独立飞行用 Projectile/Helper。**
 
 #### 状态定义（所有同类角色共享）
 
@@ -379,6 +365,12 @@ end
 -- -2：标志/变量更新（不管什么状态都要做）
 function Player:updateFlags(dt, buf)
     -- 蓄力标志（任何状态都能蓄力）
+    -- ★ -2 层只管标志（给视觉用：剑上冒蓝光），不在这里 setState。
+    --    "蓄力满后松手 → 次元斩释放" 是一个普通招式触发，触发条件就是
+    --    命令 ~15a（按住 attack 15 帧后松开，§3.3），和波动拳的 QCF_x 同类。
+    --    由 -1 层 trigger entry 消费命令做 ChangeState（见后面 trigger entry 例表）。
+    --    若在 -2 层 setState：① 越权做了 -1 层的事（§「MUGEN state -1 的真实流程」）；
+    --    ② setState 不设 state_changed，-1 层照样跑，可能用新状态再切一次把 release 覆盖掉。
     if buf:held("attack") and not self.charging then
         self.charging = true
         self.charge_frame = 0
@@ -387,10 +379,8 @@ function Player:updateFlags(dt, buf)
         if buf:held("attack") then
             self.charge_frame = self.charge_frame + 1
         else
-            if self.charge_frame >= 15 then
-                self:setState("judgement_cut_release")
-            end
-            self.charging = false
+            self.charging = false        -- 松手清标志，蓝光消失
+            self.charge_frame = 0
         end
     end
 
@@ -478,6 +468,97 @@ func (cl *CharList) action() {
     }
     ...
 }
+```
+
+**这四个方法分别是干什么的**（源码都在 `src/char.go`）：
+
+**① `cl.updateRunOrder()` — 给所有角色排执行顺序**
+
+每帧先把所有角色（玩家 + helper）按优先级排序，决定谁先跑。优先级从高到低：
+
+| 优先级 | 谁 | 为什么 |
+|---|---|---|
+| 100 | `runfirst` 标志的角色 | 显式要求最先跑 |
+| 5 | 攻击中（moveType=A） | 攻击者先判定命中，被击者本帧就能处理被击，不拖一帧 |
+| 4 | idle 玩家 | |
+| 3 | 其他玩家 | |
+| 2 | idle helper | |
+| 1 | 其他 helper | |
+| -100 | `runlast` 标志的角色 | 显式要求最后跑 |
+
+同优先级按 ID 排（小 ID 先跑），保证顺序可预测。排完重置 `runfirst`/`runlast`——这俩是每帧临时标志。
+
+**② `cl.commandUpdate()` — 输入和命令更新（系统层，所有角色一起做）**
+
+这是**系统层**，在所有 state 之前跑，对每个角色（root + helper）做：
+
+- **AI 作弊**：AI 控制时随机挑一个命令标记为"匹配上"，模拟人类输入
+- **自动转身** `autoTurn()`：站立/行走/落地等状态下自动转向对手（这就是为什么你不写转身代码角色也会转）
+- **前后翻转** `updateFBFlip()`：根据朝向把"按后"解释成"按前"还是"按后"（对应本文 §6 讲的相对方向）
+- **输入更新** `InputUpdate()`：读硬件 → 写进 buffer
+- **命令步进** `cmd[i].Step()`：每个命令推进一帧匹配，处理 hitpause/pause 时的缓冲
+
+**关键**：这一步只**更新**命令匹配结果（让 `command = "QCF_x"` 变 true），**不消费**——消费是 -1 层的事。所以 -1 拿到的 `command` 是已经算好的结果。
+
+**③ `c.actionPrepare()` — 角色动作准备（每个角色单独做）**
+
+正式跑 state 之前的准备，核心两件事：
+
+**a. 算 `pauseBool`**（是否被 Pause/SuperPause 冻住）。后面 `actionRun` 里 -3/-2/-1/当前状态都靠它决定跑不跑。
+
+**b. 硬编码按键动作**——引擎内置的"不用玩家写也会动"的行为。这就是为什么 MUGEN 里你什么都不写，角色也能站、蹲、走、跳、防御：
+
+```go
+if c.ctrl() {
+    if c.scf(SCF_guard) && c.inguarddist && !c.inGuardState() && ... {
+        c.changeState(120, ...) // 防御
+    } else if !c.asf(ASF_nojump) && c.ss.stateType == ST_S && ... {
+        c.changeState(40, ...)  // 跳跃
+    } else if !c.asf(ASF_noairjump) && ... {
+        c.changeState(45, ...)  // 空中跳
+    } else if !c.asf(ASF_nocrouch) && ... {
+        c.changeState(10, ...)  // 站→蹲
+    } else if !c.asf(ASF_nostand) && ... {
+        c.changeState(12, ...)  // 蹲→站
+    } else if !c.asf(ASF_nowalk) && ... {
+        c.changeState(20, ...)  // 走路
+    }
+}
+```
+
+这些状态切换靠 `ASF_nojump`/`ASF_nocrouch` 等标志开关。对应本文 §"用法 A：通用取消"的引擎内置版——做鬼泣类游戏时这些靠 trigger entry 自己管，不用引擎硬编码。
+
+**c. 重置标志和计时器**：`specialFlag`、`stagebound`、`screenbound`、`playerpush`、`hitby`/`hover` 计时器递减。每帧开头清零，state 里设了才生效。
+
+**④ `c.actionRun()` — 跑状态层（核心，-4/-3/-2/-1/当前/+1 都在这）**
+
+这就是本文 `Player.update` 五层分层对应的那段。依次跑：
+
+| 步骤 | `c.minus` | 受 `pauseBool` 控制？ | 干啥 | 对应本文 |
+|---|---|---|---|---|
+| state -4 | -4 | ❌ 总是跑 | 极少用，hitpause 也跑 | `updateAlways` |
+| state -3 | -3 | ✅ | 朝向、锁定等 | `updateGlobal` |
+| state -2 | -2 | ✅ | 变量更新 | `updateFlags` |
+| state -1 | -1 | ✅ | 命令消费 + ChangeState | `updateControl` |
+| `stateChange2()` | — | ✅ | 把缓冲的状态切换真正生效 | `if state_changed then return` |
+| 当前状态 | 0 | ✅ | 推进帧数、跑 sctrl | `updateState` |
+
+**注意 `stateChange2()`**：-1 层 ChangeState 不是立即切的，是先缓冲，等 -1 跑完才在 `stateChange2()` 真正切。这就是本文说的"-1 里触发的 ChangeState 会先排队"。
+
+之后还有：防御指令再查一次、state +1（收尾层，对应 `-10`）、物理更新（`posUpdate`、落地检测、`ss.time++`）。
+
+**串起来的完整一帧**：
+
+```
+action():
+  updateRunOrder()      ← 排序：攻击者先、玩家先、helper 后
+  commandUpdate()       ← 系统层：读硬件、命令匹配、autoTurn、FB翻转
+  for each char:
+    actionPrepare()     ← 算 pauseBool、硬编码站蹲走跳防、重置标志
+  for each char:
+    actionRun()         ← -4 → -3 → -2 → -1 → stateChange2 → 当前状态 → +1 → 物理
+  for each char:
+    actionFinish()      ← 收尾
 ```
 
 所以 -1 拿到的 `command = "QCF_x"` 是**已经匹配好的结果**，它的工作是拿着这些结果 + 当前状态 + 帧数，决定要不要 ChangeState。换句话讲：
@@ -856,6 +937,15 @@ end
 ```
 
 招式从头到尾只用虚拟按键名（`attack`、`jump`），不关心是键盘 J 还是手柄 A 键。换设备只改映射表，不改招式。这就是 MUGEN 的 `KeyConfig` 设计。
+
+> **其他引擎的对应**：本文的"虚拟按键"就是 Unity Input System 的 **InputAction**、UE Enhanced Input 的 **UInputAction**、MUGEN 的逻辑按键——同一个抽象层，叫法不同。有引擎经验的读者看到"虚拟按键"可直接对应到 InputAction/UInputAction。
+>
+>| 引擎/框架 | 抽象输入叫什么 | 绑定到物理输入的东西 | 代码里查什么 |
+>|---|---|---|---|
+>| 本文 | 虚拟按键（`attack`/`jump`/`lock`...） | 物理映射表（`keyboardMap`/`gamepadMap`） | `buf:held("attack")` |
+>| Unity Input System | InputAction（`Move`/`Jump`/`Fire`...） | Binding | `action.WasPressedThisFrame()` |
+>| UE Enhanced Input | UInputAction（`IA_Jump`/`IA_Move`...） | InputMappingContext | `ActionValue` |
+>| MUGEN | 逻辑按键（`a`/`b`/`c`/`x`/`y`/`z`/`up`...） | KeyConfig | `command = "QCF_x"` 里的 `x` |
 
 #### DMC5 的按键设计（查证后）
 
@@ -1268,7 +1358,8 @@ end
 ```lua
 local hadouken = {
     name = "hadouken",
-    time = 15,           -- 整个招式必须在 15 帧内完成
+    time = 15,           -- 全局超时：整个招式必须在 15 帧内完成
+    step_time = 15,      -- 单步超时：每步完成后 15 帧内必须接下一步（默认 = time，可单独设；对应 MUGEN steptime）
     buffer_time = 1,     -- 完成后保留 1 帧可触发
     steps = {
         -- 步骤 1: 按下"下"（边沿触发）
@@ -1397,22 +1488,28 @@ function love.update(dt)
 end
 ```
 
-### 4.2 一个命令有 5 个状态字段
+### 4.2 一个命令的字段
 
 ```lua
 local cmd = {
     -- 配方（不变的）
     name = "hadouken",
-    time = 15,
-    buffer_time = 1,
+    time = 15,           -- 全局超时：整条命令从第一个 step 完成到全部完成的总帧数上限
+    step_time = 15,      -- 单步超时：每个 step 完成后多少帧内必须接下一步（默认 = time）
+    buffer_time = 1,     -- 招式触发后能"留住"几帧
     steps = {...},
 
     -- 状态（每帧更新的）
-    completed = {false, false, false},  -- 每个 step 是否完成
-    cur_time = 0,         -- 第一个 step 完成后开始计时
+    completed = {false, false, false},   -- 每个 step 是否完成
+    step_timers = {0, 0, 0},             -- 每个 step 完成后过了几帧（和 completed 一一对应）
+    cur_time = 0,         -- 第一个 step 完成后开始计时（全局超时用）
     cur_buffer_time = 0,  -- 招式触发后还剩多少帧可被触发
 }
 ```
+
+> **MUGEN 对应**：`time` = MUGEN 的 `command.time`（源码 `maxtime`），`step_time` = MUGEN 的 `steptime`（源码 `maxsteptime`）。MUGEN 里 `steptime` 可单独设，不设时默认等于 `time`（Ikemen-GO `compiler.go:8264`：`if cm.maxsteptime <= 0 { cm.maxsteptime = cm.maxtime }`）。`step_timers` 对应 MUGEN 的 `stepTimers[]` 数组。
+>
+> 区分两个超时：`time` 管"整条命令的总时长"，`step_time` 管"单步完成后多久必须接下一步"。大多数情况两者相等（用默认），但你可以让单步超时更短——比如全局 30 帧、单步 10 帧，要求每步之间不能停超过 10 帧但整条可以拖 30 帧。
 
 ### 4.3 step 函数的逻辑
 
@@ -1430,7 +1527,7 @@ function Command.step(cmd, buf, hitstop)
         if cmd.completed[i] then
             -- 已完成的 step，检查是否超时
             cmd.step_timers[i] = (cmd.step_timers[i] or 0) + 1
-            if cmd.step_timers[i] > cmd.time then
+            if cmd.step_timers[i] > cmd.step_time then   -- 单步超时用 step_time（默认 = time，对应 MUGEN steptime）
                 cmd.completed[i] = false
                 cmd.step_timers[i] = 0
             else
@@ -5022,6 +5119,26 @@ M.entries = {
             { T.onGround, T.ctrl },                            -- trigger1: 站立有控制权
             { state(400), T.moveContact },                     -- trigger2: 2A命中取消
             { state(300), animElemGte(13), T.moveContact },    -- trigger3: 4A特定帧取消
+        },
+    },
+
+    -- ==================== 次元斩释放（蓄力招） ====================
+    -- 触发条件 = 命令 ~15a（按住 attack 15 帧后松开，§3.3 蓄力释放修饰符）
+    -- 这就是 -2 层 updateFlags 里 charging/charge_frame 对应的"招式触发"，
+    -- 和上面的 5A、波动拳一样是普通命令触发，没有任何特殊化。
+    {
+        name = "judgement_cut_release",
+        changeState = 350,              -- 次元斩释放状态号
+        priority = 60,
+        triggerall = {
+            T.notHelper, T.notAI,
+            cmd("~15a"),                -- ★ 蓄力 15 帧后松开（命令系统已支持，§3.3）
+            T.onGround,
+            T.roundState2,
+        },
+        triggers = {
+            { T.ctrl },                                         -- trigger1: 自由状态直接出
+            { state(340) },                                     -- trigger2: 蓄力状态中松手（judgement_cut_charge）
         },
     },
 
