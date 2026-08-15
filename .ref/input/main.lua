@@ -335,7 +335,7 @@ local cmds = {
     -- 长 buffer：预输入/连击衔接容忍，跨招 buffer 撑到后摇窗口
     Command.new({
         name = "attack",
-        priority = 1, time = 10, buffer_time = 15,
+        priority = 1, time = 10, buffer_time = 20,
         steps = {
             {keys = {{name = "attack"}}},
         },
@@ -344,7 +344,7 @@ local cmds = {
     -- 长 buffer：空中预输入落地接
     Command.new({
         name = "jump",
-        priority = 1, time = 10, buffer_time = 15,
+        priority = 1, time = 10, buffer_time = 20,
         steps = {
             {keys = {{name = "jump"}}},
         },
@@ -443,6 +443,7 @@ local actionDefs = {
             {cmd = "upper_slash", open = 1},
             {cmd = "void_slash", open = 1},
             {cmd = "attack", open = 1},
+            {cmd = "jump", open = 42},
         },
     },
 }
@@ -465,7 +466,7 @@ function love.load()
     local ok, f = pcall(love.graphics.newFont, FONT_PATH, FONT_SIZE)
     font = ok and f or love.graphics.newFont(FONT_SIZE)
     love.graphics.setFont(font)
-    love.window.setMode(1080, 860)
+    love.window.setMode(1480, 980)
     love.graphics.setBackgroundColor(0.10, 0.10, 0.12)
     -- 把启动前已连接的手柄纳入（joystickadded 在 load 之前已发完）
     for _, j in ipairs(love.joystick.getJoysticks()) do
@@ -813,163 +814,26 @@ function love.draw()
         {"ESC=", "quit", GRAY},
     }); y = y + 18
 
-    -- status line
+    -- status line（右上角固定，跟标题分开）
     if paused then
         setColor(YELLOW)
-        love.graphics.print("[ PAUSED ]", 760, y - 18)
+        love.graphics.print("[ PAUSED ]", 1200, 8)
     end
     setColor(GRAY)
-    love.graphics.print("frame " .. frameCount, 760, 8)
+    love.graphics.print("frame " .. frameCount, 1280, 8)
     if hitstop > 0 then
         setColor(RED)
-        love.graphics.print("[ HITSTOP " .. hitstop .. " ]", 760, 24)
+        love.graphics.print("[ HITSTOP " .. hitstop .. " ]", 1200, 26)
     end
 
-    -- ===== ACTION STATE =====
-    setColor(CYAN); love.graphics.print("-- ACTION --", 12, y); y = y + 18
-    local aName, phase, fr, total
-    if currentAction then
-        aName = currentAction.name
-        phase = currentAction.phase
-        if phase == "startup" then
-            fr, total = currentAction.frame, currentAction.startup
-        elseif phase == "active" then
-            fr, total = currentAction.frame, currentAction.active
-        else
-            fr, total = currentAction.frame, currentAction.recovery
-        end
-    else
-        aName, phase, fr, total = "(idle)", "idle", 0, 1
-    end
+    -- ===== 双列布局：左列=系统主链，右列=输入观测+日志 =====
+    local LX = 12       -- 左列 x
+    local RX = 900       -- 右列 x
+    local yL = y         -- 左列 y 游标
+    local yR = y         -- 右列 y 游标
 
-    local phaseCol = ({startup={0.6,0.6,1}, active={1,0.5,0.3}, recovery={1,0.85,0.2}, idle=GRAY})[phase]
-    setColor(phaseCol)
-    love.graphics.print("action: " .. pad(aName, 14) .. " phase: " .. pad(phase, 9) ..
-                         " frame: " .. fr .. "/" .. total ..
-                         "  abs: " .. actionAbsFrame(currentAction) .. "/" .. (currentAction and currentAction.total or 0), 12, y); y = y + 20
-
-    -- 街霸风格帧格（每帧固定 8px，按相位着色，当前帧白框；超宽自动换行）
-    if currentAction then
-        local gridH = drawFrameGrid(12, y, 880, currentAction)
-        -- 图例
-        setColor({0.4,0.5,0.9}); love.graphics.print("startup", 12, y + gridH + 4)
-        setColor({0.9,0.3,0.3}); love.graphics.print("active", 90, y + gridH + 4)
-        setColor({0.9,0.75,0.2}); love.graphics.print("recovery", 160, y + gridH + 4)
-        setColor(WHITE); love.graphics.print("= current frame (white outline)", 250, y + gridH + 4)
-        y = y + gridH + 24
-    else
-        y = y + 4
-    end
-
-    -- 取消窗口多轨道（每个命令一条，和帧格 8px 对齐，当前帧竖线）
-    setColor(CYAN); love.graphics.print("-- CANCEL WINDOWS (white line on filled = can cancel now) --", 12, y); y = y + 16
-    if currentAction then
-        local ch = drawCancelTracks(12, y, 880, currentAction)
-        y = y + ch + 4
-    else
-        setColor(GRAY); love.graphics.print("(idle — no action to cancel)", 12, y); y = y + 18
-    end
-    setColor(comboIndex > 0 and YELLOW or GRAY)
-    love.graphics.print("combo: " .. comboIndex .. "/" .. #comboHits, 720, y)
-    y = y + 4
-
-    -- ===== INPUT BUFFER =====
-    setColor(CYAN); love.graphics.print("-- INPUT BUFFER (hold frames; 1=just pressed  -1=just released) --", 12, y); y = y + 18
-    local function drawBufRow(keys, yy)
-        local x = 12
-        for _, name in ipairs(keys) do
-            local v = buf[name]
-            local col = GRAY
-            if v > 0 then col = GREEN
-            elseif v == -1 then col = RED
-            elseif v == 1 then col = YELLOW end
-            setColor(col)
-            love.graphics.print(pad(name, 8), x, yy)
-            love.graphics.print(pad(v, 4), x, yy + 16)
-            x = x + 96
-        end
-        return yy + 36
-    end
-    y = drawBufRow({"left","right","up","down","attack"}, y)
-    y = drawBufRow({"jump","shoot","lock","special"}, y)
-    y = y + 6
-
-    -- ===== RAW KEYBOARD (live, updates even when paused) =====
-    setColor(CYAN); love.graphics.print("-- RAW KEYBOARD (live; keys held NOW = what next step captures) --", 12, y); y = y + 16
-    local function drawRawRow(keys, yy)
-        local x = 12
-        for _, name in ipairs(keys) do
-            local kbKey = keyboardMap[name]
-            local down = kbKey and love.keyboard.isDown(kbKey) or false
-            setColor(down and GREEN or GRAY)
-            love.graphics.print(pad(string.upper(kbKey) .. ":" .. name, 12), x, yy)
-            x = x + 100
-        end
-        return yy + 16
-    end
-    y = drawRawRow({"left","right","up","down","attack"}, y)
-    y = drawRawRow({"jump","shoot","lock","special"}, y)
-    y = y + 6
-
-    -- ===== RAW GAMEPAD (live; Xbox layout) =====
-    setColor(CYAN)
-    love.graphics.print("-- RAW GAMEPAD (live; Xbox: LS/DPad=move, X/RB=atk, A=jump, Y/RT=shoot, LB/LT=lock, B=special) --", 12, y)
-    y = y + 16
-    if #gamepads == 0 then
-        setColor(GRAY); love.graphics.print("(no gamepad connected)", 12, y); y = y + 16
-    else
-        local gp = gamepads[1]
-        local dpl = gp:isGamepadDown("dpleft")
-        local dpr = gp:isGamepadDown("dpright")
-        local dpu = gp:isGamepadDown("dpup")
-        local dpd = gp:isGamepadDown("dpdown")
-        local xb = gp:isGamepadDown("x")
-        local ab = gp:isGamepadDown("a")
-        local yb = gp:isGamepadDown("y")
-        local bb = gp:isGamepadDown("b")
-        local lb = gp:isGamepadDown("leftshoulder")
-        local rb = gp:isGamepadDown("rightshoulder")
-        -- 扳机是模拟轴，用轴值判断（静止 0，按下趋向 1）
-        local lt = (gp:getGamepadAxis("triggerleft")  or 0) > STICK_DEADZONE
-        local rt = (gp:getGamepadAxis("triggerright") or 0) > STICK_DEADZONE
-        local function drawGpRow(items, yy)
-            local x = 12
-            for _, it in ipairs(items) do
-                setColor(it[2] and GREEN or GRAY)
-                love.graphics.print(pad(it[1], 12), x, yy)
-                x = x + 100
-            end
-            return yy + 16
-        end
-        y = drawGpRow({
-            {"dpl:" .. (dpl and 1 or 0), dpl},
-            {"dpr:" .. (dpr and 1 or 0), dpr},
-            {"dpu:" .. (dpu and 1 or 0), dpu},
-            {"dpd:" .. (dpd and 1 or 0), dpd},
-        }, y)
-        y = drawGpRow({
-            {"X:" .. (xb and 1 or 0), xb},
-            {"A:" .. (ab and 1 or 0), ab},
-            {"Y:" .. (yb and 1 or 0), yb},
-            {"B:" .. (bb and 1 or 0), bb},
-        }, y)
-        y = drawGpRow({
-            {"LB:" .. (lb and 1 or 0), lb},
-            {"RB:" .. (rb and 1 or 0), rb},
-            {"LT:" .. (lt and 1 or 0), lt},
-            {"RT:" .. (rt and 1 or 0), rt},
-        }, y)
-        local ax = gp:getGamepadAxis("leftx") or 0
-        local ay = gp:getGamepadAxis("lefty") or 0
-        setColor(GRAY)
-        love.graphics.print(string.format("LS: x=%+.2f y=%+.2f  (deadzone %.2f)  [%s]",
-            ax, ay, STICK_DEADZONE, gp:getName() or "?"), 12, y)
-        y = y + 16
-    end
-    y = y + 6
-
-    -- ===== COMMANDS =====
-    setColor(CYAN); love.graphics.print("-- COMMANDS (priority desc) --", 12, y); y = y + 18
+    -- ===== COMMANDS（左列；priority desc）— 放上面，位置稳定不跳 =====
+    setColor(CYAN); love.graphics.print("-- COMMANDS (priority desc) --", LX, yL); yL = yL + 18
     -- 按 priority 降序展示（和触发检查顺序一致）
     for _, cmd in ipairs(getCmdsByPriority()) do
         local active = Command.isActive(cmd)
@@ -1003,14 +867,12 @@ function love.draw()
         end
         setColor(col)
         love.graphics.print(pad("p" .. cmd.priority .. " [" .. cmd.name .. "]", 18) .. pad(status, 48) ..
-              "  cur_time=" .. cmd.cur_time .. "/" .. cmd.time, 12, y); y = y + 18
+              "  cur_time=" .. cmd.cur_time .. "/" .. cmd.time, LX, yL); yL = yL + 18
 
-        -- buffer_time bar (the pre-input survival window)
-        if barVal then
-            drawBar(12, y, 300, barVal, cmd.buffer_time, barCol)
-            setColor(GRAY); love.graphics.print("buffer_time (pre-input ttl)", 320, y)
-            y = y + 18
-        end
+        -- buffer_time bar (始终占位，避免布局跳动；idle 时空槽，有 buffer 时彩色填充)
+        drawBar(LX, yL, 300, barVal or 0, cmd.buffer_time, barCol or GRAY)
+        setColor(GRAY); love.graphics.print("buffer_time (pre-input ttl)", LX + 308, yL)
+        yL = yL + 18
 
         -- each step
         for i, step in ipairs(cmd.steps) do
@@ -1023,16 +885,159 @@ function love.draw()
                 s = s .. " timer=" .. cmd.step_timers[i] .. "/" .. cmd.time
             end
             if flashing then s = s .. "  <<MATCHED" end
-            love.graphics.print(s, 12, y); y = y + 16
+            love.graphics.print(s, LX, yL); yL = yL + 16
         end
-        y = y + 6
+        yL = yL + 6
     end
 
-    -- ===== EVENT LOG =====
-    setColor(CYAN); love.graphics.print("-- LOG --", 12, y); y = y + 18
+    -- ===== ACTION STATE（左列）— 放下面，帧格/取消轨道跳动只影响底部 =====
+    setColor(CYAN); love.graphics.print("-- ACTION --", LX, yL); yL = yL + 18
+    local aName, phase, fr, total
+    if currentAction then
+        aName = currentAction.name
+        phase = currentAction.phase
+        if phase == "startup" then
+            fr, total = currentAction.frame, currentAction.startup
+        elseif phase == "active" then
+            fr, total = currentAction.frame, currentAction.active
+        else
+            fr, total = currentAction.frame, currentAction.recovery
+        end
+    else
+        aName, phase, fr, total = "(idle)", "idle", 0, 1
+    end
+
+    local phaseCol = ({startup={0.6,0.6,1}, active={1,0.5,0.3}, recovery={1,0.85,0.2}, idle=GRAY})[phase]
+    setColor(phaseCol)
+    love.graphics.print("action: " .. pad(aName, 14) .. " phase: " .. pad(phase, 9) ..
+                         " frame: " .. fr .. "/" .. total ..
+                         "  abs: " .. actionAbsFrame(currentAction) .. "/" .. (currentAction and currentAction.total or 0), LX, yL); yL = yL + 20
+
+    -- 街霸风格帧格（每帧固定 8px，按相位着色，当前帧白框；超宽自动换行）
+    if currentAction then
+        local gridH = drawFrameGrid(LX, yL, 880, currentAction)
+        -- 图例
+        setColor({0.4,0.5,0.9}); love.graphics.print("startup", LX, yL + gridH + 4)
+        setColor({0.9,0.3,0.3}); love.graphics.print("active", LX + 78, yL + gridH + 4)
+        setColor({0.9,0.75,0.2}); love.graphics.print("recovery", LX + 148, yL + gridH + 4)
+        setColor(WHITE); love.graphics.print("= current frame (white outline)", LX + 238, yL + gridH + 4)
+        yL = yL + gridH + 24
+    else
+        yL = yL + 4
+    end
+
+    -- 取消窗口多轨道（每个命令一条，和帧格 8px 对齐，当前帧竖线）
+    setColor(CYAN); love.graphics.print("-- CANCEL WINDOWS (white line on filled = can cancel now) --", LX, yL); yL = yL + 16
+    if currentAction then
+        local ch = drawCancelTracks(LX, yL, 880, currentAction)
+        yL = yL + ch + 4
+    else
+        setColor(GRAY); love.graphics.print("(idle — no action to cancel)", LX, yL); yL = yL + 18
+    end
+    setColor(comboIndex > 0 and YELLOW or GRAY)
+    love.graphics.print("combo: " .. comboIndex .. "/" .. #comboHits, LX + 708, yL)
+    yL = yL + 4
+
+    -- ===== INPUT BUFFER（右列）=====
+    setColor(CYAN); love.graphics.print("-- INPUT BUFFER (hold frames; 1=just pressed  -1=just released) --", RX, yR); yR = yR + 18
+    local function drawBufRow(keys, yy)
+        local x = RX
+        for _, name in ipairs(keys) do
+            local v = buf[name]
+            local col = GRAY
+            if v > 0 then col = GREEN
+            elseif v == -1 then col = RED
+            elseif v == 1 then col = YELLOW end
+            setColor(col)
+            love.graphics.print(pad(name, 8), x, yy)
+            love.graphics.print(pad(v, 4), x, yy + 16)
+            x = x + 96
+        end
+        return yy + 36
+    end
+    yR = drawBufRow({"left","right","up","down","attack"}, yR)
+    yR = drawBufRow({"jump","shoot","lock","special"}, yR)
+    yR = yR + 6
+
+    -- ===== RAW KEYBOARD（右列；live, updates even when paused）=====
+    setColor(CYAN); love.graphics.print("-- RAW KEYBOARD (live; keys held NOW = what next step captures) --", RX, yR); yR = yR + 16
+    local function drawRawRow(keys, yy)
+        local x = RX
+        for _, name in ipairs(keys) do
+            local kbKey = keyboardMap[name]
+            local down = kbKey and love.keyboard.isDown(kbKey) or false
+            setColor(down and GREEN or GRAY)
+            love.graphics.print(pad(string.upper(kbKey) .. ":" .. name, 12), x, yy)
+            x = x + 100
+        end
+        return yy + 16
+    end
+    yR = drawRawRow({"left","right","up","down","attack"}, yR)
+    yR = drawRawRow({"jump","shoot","lock","special"}, yR)
+    yR = yR + 6
+
+    -- ===== RAW GAMEPAD（右列；live; Xbox layout）=====
+    setColor(CYAN)
+    love.graphics.print("-- RAW GAMEPAD (live; Xbox: LS/DPad=move, X/RB=atk, A=jump, Y/RT=shoot, LB/LT=lock, B=special) --", RX, yR)
+    yR = yR + 16
+    if #gamepads == 0 then
+        setColor(GRAY); love.graphics.print("(no gamepad connected)", RX, yR); yR = yR + 16
+    else
+        local gp = gamepads[1]
+        local dpl = gp:isGamepadDown("dpleft")
+        local dpr = gp:isGamepadDown("dpright")
+        local dpu = gp:isGamepadDown("dpup")
+        local dpd = gp:isGamepadDown("dpdown")
+        local xb = gp:isGamepadDown("x")
+        local ab = gp:isGamepadDown("a")
+        local yb = gp:isGamepadDown("y")
+        local bb = gp:isGamepadDown("b")
+        local lb = gp:isGamepadDown("leftshoulder")
+        local rb = gp:isGamepadDown("rightshoulder")
+        -- 扳机是模拟轴，用轴值判断（静止 0，按下趋向 1）
+        local lt = (gp:getGamepadAxis("triggerleft")  or 0) > STICK_DEADZONE
+        local rt = (gp:getGamepadAxis("triggerright") or 0) > STICK_DEADZONE
+        local function drawGpRow(items, yy)
+            local x = RX
+            for _, it in ipairs(items) do
+                setColor(it[2] and GREEN or GRAY)
+                love.graphics.print(pad(it[1], 12), x, yy)
+                x = x + 100
+            end
+            return yy + 16
+        end
+        yR = drawGpRow({
+            {"dpl:" .. (dpl and 1 or 0), dpl},
+            {"dpr:" .. (dpr and 1 or 0), dpr},
+            {"dpu:" .. (dpu and 1 or 0), dpu},
+            {"dpd:" .. (dpd and 1 or 0), dpd},
+        }, yR)
+        yR = drawGpRow({
+            {"X:" .. (xb and 1 or 0), xb},
+            {"A:" .. (ab and 1 or 0), ab},
+            {"Y:" .. (yb and 1 or 0), yb},
+            {"B:" .. (bb and 1 or 0), bb},
+        }, yR)
+        yR = drawGpRow({
+            {"LB:" .. (lb and 1 or 0), lb},
+            {"RB:" .. (rb and 1 or 0), rb},
+            {"LT:" .. (lt and 1 or 0), lt},
+            {"RT:" .. (rt and 1 or 0), rt},
+        }, yR)
+        local ax = gp:getGamepadAxis("leftx") or 0
+        local ay = gp:getGamepadAxis("lefty") or 0
+        setColor(GRAY)
+        love.graphics.print(string.format("LS: x=%+.2f y=%+.2f  (deadzone %.2f)  [%s]",
+            ax, ay, STICK_DEADZONE, gp:getName() or "?"), RX, yR)
+        yR = yR + 16
+    end
+    yR = yR + 6
+
+    -- ===== EVENT LOG（右列）=====
+    setColor(CYAN); love.graphics.print("-- LOG --", RX, yR); yR = yR + 18
     for _, e in ipairs(log) do
         setColor(e.color or GRAY)
-        love.graphics.print(pad("f" .. e.frame, 7) .. e.text, 12, y); y = y + 16
+        love.graphics.print(pad("f" .. e.frame, 7) .. e.text, RX, yR); yR = yR + 16
     end
 end
 
