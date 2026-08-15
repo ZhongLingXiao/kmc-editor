@@ -323,7 +323,7 @@ local cmds = {
     -- Void Slash: 后→前+攻击 (A, D, J) —— 斩裂时空（3步，最具体）
     Command.new({
         name = "void_slash",
-        priority = 5, time = 60, buffer_time = 5,   -- 特殊技短 buffer：意图即执行
+        priority = 5, time = 60, buffer_time = 20,   -- 特殊技短 buffer：意图即执行
         steps = {
             {keys = {{name = "left"}}},
             {keys = {{name = "right"}}},
@@ -333,7 +333,7 @@ local cmds = {
     -- Upper Slash: 后+攻击 (hold A + J) —— launcher 上挑（2键）
     Command.new({
         name = "upper_slash",
-        priority = 4, time = 20, buffer_time = 5,
+        priority = 4, time = 20, buffer_time = 20,
         steps = {
             {keys = {{name = "left", hold = true}, {name = "attack"}}},
         },
@@ -341,7 +341,7 @@ local cmds = {
     -- Rapid Slash: 前+攻击 (hold D + J) —— 突进斩（2键）
     Command.new({
         name = "rapid_slash",
-        priority = 4, time = 20, buffer_time = 5,
+        priority = 4, time = 20, buffer_time = 20,
         steps = {
             {keys = {{name = "right", hold = true}, {name = "attack"}}},
         },
@@ -359,7 +359,7 @@ local cmds = {
     -- 长 buffer：空中预输入落地接
     Command.new({
         name = "jump",
-        priority = 1, time = 10, buffer_time = 20,
+        priority = 1, time = 10, buffer_time = 10,
         steps = {
             {keys = {{name = "jump"}}},
         },
@@ -467,6 +467,7 @@ local currentAction = nil       -- nil == idle
 local hitstop = 0
 local frameCount = 0
 local log = {}                  -- newest first; {frame, text, color}
+local inputHistory = {}         -- newest first; {frame, text, color}  按键按下/松开
 local paused = false
 local stepOnce = false
 
@@ -475,13 +476,45 @@ local function addLog(text, col)
     if #log > 14 then table.remove(log) end
 end
 
+-- 记录输入历史：方向用状态变化（dir:xxx），功能键记按下/松开（key+/key-）
+local prevDir = "N"
+local function curDir()
+    local l, r, u, d = Input.held("left"), Input.held("right"), Input.held("up"), Input.held("down")
+    local s = ""
+    if u then s = s .. "U" end
+    if d then s = s .. "D" end
+    if l then s = s .. "L" end
+    if r then s = s .. "R" end
+    if s == "" then s = "N" end
+    return s
+end
+
+local function addInputHistory()
+    local parts = {}
+    -- 方向状态变化（推/松开方向，只记变化不记按键事件）
+    local dir = curDir()
+    if dir ~= prevDir and dir ~= "N" then
+        parts[#parts+1] = "dir:" .. dir
+        prevDir = dir
+    end
+    -- 功能键按下/松开
+    for _, vkey in ipairs({"attack", "jump", "shoot", "lock", "special"}) do
+        if Input.justPressed(vkey)  then parts[#parts+1] = vkey .. "+" end
+        if Input.justReleased(vkey) then parts[#parts+1] = vkey .. "-" end
+    end
+    if #parts > 0 then
+        table.insert(inputHistory, 1, {frame = frameCount, text = table.concat(parts, " "), color = {0.3, 1, 0.3}})
+        if #inputHistory > 14 then table.remove(inputHistory) end
+    end
+end
+
 -- ---------- love callbacks ----------
 local font
 function love.load()
     local ok, f = pcall(love.graphics.newFont, FONT_PATH, FONT_SIZE)
     font = ok and f or love.graphics.newFont(FONT_SIZE)
     love.graphics.setFont(font)
-    love.window.setMode(1480, 980)
+    love.window.setMode(1640, 980)
     love.graphics.setBackgroundColor(0.10, 0.10, 0.12)
     -- 把启动前已连接的手柄纳入（joystickadded 在 load 之前已发完）
     for _, j in ipairs(love.joystick.getJoysticks()) do
@@ -517,6 +550,7 @@ function love.update(dt)
 
     -- ===== 第1步：读输入 + 更新 Buffer =====
     Input.update()
+    addInputHistory()
     local snapshot = buildSnapshot()
     Buffer.update(buf, snapshot)
 
@@ -603,7 +637,7 @@ function love.update(dt)
                 -- 清理同帧匹配的子集命令（避免 cascade）
                 for _, sub in ipairs(cmds) do
                     if sub ~= cmd
-                       and sub.cur_buffer_time > snap[sub].buf  -- 本帧匹配了（含刷新）
+                       and sub.cur_buffer_time > 0              -- buffer 还活着就清（含预输入）
                        and Command.isSubsetOf(sub, cmd)          -- 是胜者子集
                     then
                         sub.cur_buffer_time = 0
@@ -619,13 +653,13 @@ function love.update(dt)
                     currentAction = Action.new(def)
                     Action.start(currentAction)
                     comboIndex = nextIndex
-                    addLog("TRIGGER attack -> " .. def.name .. "  (cancel from " .. prev .. ", combo " .. nextIndex .. "/" .. #comboHits .. ")", {0.3, 1, 0.3})
+                    addLog("TRIGGER " .. cmd.name .. "  (" .. def.name .. " " .. nextIndex .. "/" .. #comboHits .. ", from " .. prev .. ")", {0.3, 1, 0.3})
                 else
                     -- 特殊技 / 跳跃：启动对应动作，重置连击链
                     currentAction = Action.new(actionDefs[cmd.name])
                     Action.start(currentAction)
                     comboIndex = 0
-                    addLog("TRIGGER " .. cmd.name .. " -> " .. currentAction.name .. "  (cancel from " .. prev .. ")", {0.3, 1, 0.3})
+                    addLog("TRIGGER " .. cmd.name .. "  (from " .. prev .. ")", {0.3, 1, 0.3})
                 end
                 break  -- 优先级：每帧只触发一个技能
             else
@@ -1054,11 +1088,24 @@ function love.draw()
     end
     yR = yR + 6
 
-    -- ===== EVENT LOG（右列）=====
-    setColor(CYAN); love.graphics.print("-- LOG --", RX, yR); yR = yR + 18
-    for _, e in ipairs(log) do
-        setColor(e.color or GRAY)
-        love.graphics.print(pad("f" .. e.frame, 7) .. e.text, RX, yR); yR = yR + 16
+    -- ===== 输入历史 + 系统事件（右列底部，并排两列）=====
+    local IHX = RX              -- 输入历史 x
+    local LGX = RX + 260        -- 系统事件 x（往左移，给 LOG 更多宽度）
+    setColor(CYAN); love.graphics.print("-- INPUT --", IHX, yR)
+    setColor(CYAN); love.graphics.print("-- LOG --", LGX, yR); yR = yR + 18
+    -- 两列各 14 条，按索引对齐（同 index 同行，方便扫帧号对照）
+    for i = 1, 14 do
+        local ih = inputHistory[i]
+        local lg = log[i]
+        if ih then
+            setColor(ih.color or GRAY)
+            love.graphics.print(pad("f" .. ih.frame, 7) .. ih.text, IHX, yR)
+        end
+        if lg then
+            setColor(lg.color or GRAY)
+            love.graphics.print(pad("f" .. lg.frame, 7) .. lg.text, LGX, yR)
+        end
+        yR = yR + 16
     end
 end
 
@@ -1076,6 +1123,7 @@ function love.keypressed(key)
     end
     if key == "c" then
         for i = #log, 1, -1 do log[i] = nil end
+        for i = #inputHistory, 1, -1 do inputHistory[i] = nil end
         addLog("log cleared", GRAY)
     end
     if key == "." then
