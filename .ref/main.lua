@@ -20,13 +20,96 @@ local keyboardMap = {
     lock = "o", special = "i",
 }
 
+-- ---------- Gamepad layer (Xbox layout) ----------
+-- LÖVE 标准 gamepad 按键名（跨平台一致）：
+--   a / b / x / y, leftshoulder / rightshoulder,
+--   lefttrigger / righttrigger, back / start / guide,
+--   leftstick / rightstick, dpup / dpdown / dpleft / dpright
+-- 每个虚拟键对应一组 gamepad 按键（任一按下即触发）。
+-- 方向键 = D-pad；左摇杆在 Input.update 里叠加到方向上。
+local gamepadMap = {
+    left    = {"dpleft"},
+    right   = {"dpright"},
+    up      = {"dpup"},
+    down    = {"dpdown"},
+    attack  = {"x", "rightshoulder"},          -- X 或 RB
+    jump    = {"a"},                           -- A
+    shoot   = {"y", "righttrigger"},            -- Y 或 RT
+    lock    = {"leftshoulder", "lefttrigger"},  -- LB 或 LT
+    special = {"b"},                           -- B
+}
+-- 左摇杆死区（避免静止漂移触发方向）
+local STICK_DEADZONE = 0.25
+-- 已连接的 gamepad 列表（由 love.joystickadded / removed 维护）
+local gamepads = {}
+
+-- 从一个 gamepad 读取左摇杆方向（带死区）
+-- 返回 left, right, up, down 四个 bool
+local function readGamepadStick(joystick)
+    local left, right, up, down = false, false, false, false
+    -- LÖVE 中 y 轴上为负
+    local ax = joystick:getGamepadAxis("leftx") or 0
+    local ay = joystick:getGamepadAxis("lefty") or 0
+    if math.abs(ax) > STICK_DEADZONE then
+        if ax < 0 then left = true else right = true end
+    end
+    if math.abs(ay) > STICK_DEADZONE then
+        if ay < 0 then up = true else down = true end
+    end
+    return left, right, up, down
+end
+
+-- 查单个 gamepad 按键是否按下。
+-- trigger 是模拟轴，isGamepadDown 不支持，用轴值跟死区比较判断。
+local function isGamepadButtonHeld(joystick, btn)
+    if btn == "lefttrigger" or btn == "triggerleft" then
+        return (joystick:getGamepadAxis("triggerleft") or 0) > STICK_DEADZONE
+    elseif btn == "righttrigger" or btn == "triggerright" then
+        return (joystick:getGamepadAxis("triggerright") or 0) > STICK_DEADZONE
+    end
+    return joystick:isGamepadDown(btn)
+end
+
+-- 查一个虚拟键在某手柄上是否被按下（D-pad/功能键走 gamepadMap，方向再叠加摇杆）
+local function isGamepadVKeyHeld(joystick, vkey, stickDir)
+    local gpKeys = gamepadMap[vkey]
+    if gpKeys then
+        for _, btn in ipairs(gpKeys) do
+            if isGamepadButtonHeld(joystick, btn) then return true end
+        end
+    end
+    if stickDir then
+        if     vkey == "left"  and stickDir[1] then return true
+        elseif vkey == "right" and stickDir[2] then return true
+        elseif vkey == "up"    and stickDir[3] then return true
+        elseif vkey == "down"  and stickDir[4] then return true
+        end
+    end
+    return false
+end
+
 local Input = {prev = {}, curr = {}}
 
 function Input.update()
+    -- 预读所有手柄的摇杆方向
+    local padSticks = {}
+    for _, gp in ipairs(gamepads) do
+        padSticks[gp] = {readGamepadStick(gp)}
+    end
+
     for _, vkey in ipairs(VirtualKeys) do
         Input.prev[vkey] = Input.curr[vkey] or false
+        local held = false
+        -- 键盘优先
         local kbKey = keyboardMap[vkey]
-        Input.curr[vkey] = kbKey and love.keyboard.isDown(kbKey) or false
+        if kbKey and love.keyboard.isDown(kbKey) then held = true end
+        -- 手柄
+        if not held then
+            for _, gp in ipairs(gamepads) do
+                if isGamepadVKeyHeld(gp, vkey, padSticks[gp]) then held = true; break end
+            end
+        end
+        Input.curr[vkey] = held
     end
 end
 
@@ -225,7 +308,7 @@ local cmds = {
     -- Void Slash: 后→前+攻击 (A, D, J) —— 斩裂时空（3步，最具体）
     Command.new({
         name = "void_slash",
-        priority = 5, time = 30, buffer_time = 5,   -- 特殊技短 buffer：意图即执行
+        priority = 5, time = 60, buffer_time = 5,   -- 特殊技短 buffer：意图即执行
         steps = {
             {keys = {{name = "left"}}},
             {keys = {{name = "right"}}},
@@ -281,38 +364,87 @@ end
 -- combo chain: each J press during a hit's recovery cancels into the next hit
 -- basic 动作：特殊技可从前摇取消（自由），attack 后摇起始，jump 后摇~70%
 local comboHits = {
-    {name = "atk_1", startup = 25, active = 12, recovery = 45, cancel = {
-        {cmd = "rapid_slash", open = 13}, {cmd = "upper_slash", open = 13}, {cmd = "void_slash", open = 13},
-        {cmd = "attack", open = 38}, {cmd = "jump", open = 69},
-    }},
-    {name = "atk_2", startup = 25, active = 12, recovery = 45, cancel = {
-        {cmd = "rapid_slash", open = 13}, {cmd = "upper_slash", open = 13}, {cmd = "void_slash", open = 13},
-        {cmd = "attack", open = 38}, {cmd = "jump", open = 69},
-    }},
-    {name = "atk_3", startup = 30, active = 15, recovery = 60, cancel = {  -- finisher
-        {cmd = "rapid_slash", open = 15}, {cmd = "upper_slash", open = 15}, {cmd = "void_slash", open = 15},
-        {cmd = "attack", open = 46}, {cmd = "jump", open = 88},
-    }},
+    {
+        name = "atk_1",
+        startup = 25, active = 12, recovery = 45,
+        cancel = {
+            {cmd = "rapid_slash", open = 13},
+            {cmd = "upper_slash", open = 13},
+            {cmd = "void_slash", open = 13},
+            {cmd = "attack", open = 38},
+            {cmd = "jump", open = 69},
+        },
+    },
+    {
+        name = "atk_2",
+        startup = 25, active = 12, recovery = 45,
+        cancel = {
+            {cmd = "rapid_slash", open = 13},
+            {cmd = "upper_slash", open = 13},
+            {cmd = "void_slash", open = 13},
+            {cmd = "attack", open = 38},
+            {cmd = "jump", open = 69},
+        },
+    },
+    {  -- finisher
+        name = "atk_3",
+        startup = 30, active = 15, recovery = 60,
+        cancel = {
+            {cmd = "rapid_slash", open = 15},
+            {cmd = "upper_slash", open = 15},
+            {cmd = "void_slash", open = 15},
+            {cmd = "attack", open = 46},
+            {cmd = "jump", open = 88},
+        },
+    },
 }
 local comboIndex = 0   -- which combo hit is currently playing (0 = none)
 
 -- 特殊技动作：承诺招，后摇可被取消（special-cancel 后摇靠前；attack/jump 按承诺度）
 local actionDefs = {
-    rapid_slash = {name = "rapid_slash", startup = 18, active = 10, recovery = 45, cancel = {
-        {cmd = "rapid_slash", open = 33}, {cmd = "upper_slash", open = 33}, {cmd = "void_slash", open = 33},
-        {cmd = "attack", open = 52}, {cmd = "jump", open = 60},
-    }},
-    void_slash  = {name = "void_slash",  startup = 14, active = 8,  recovery = 36, cancel = {
-        {cmd = "rapid_slash", open = 27}, {cmd = "upper_slash", open = 27}, {cmd = "void_slash", open = 27},
-        {cmd = "attack", open = 23}, {cmd = "jump", open = 48},
-    }},
-    upper_slash = {name = "upper_slash", startup = 12, active = 8,  recovery = 30, cancel = {
-        {cmd = "rapid_slash", open = 25}, {cmd = "upper_slash", open = 25}, {cmd = "void_slash", open = 25},
-        {cmd = "attack", open = 21}, {cmd = "jump", open = 25},
-    }},
-    jump        = {name = "jump",        startup = 8,  active = 4,  recovery = 30, cancel = {
-        {cmd = "attack", open = 13},
-    }},
+    rapid_slash = {
+        name = "rapid_slash",
+        startup = 18, active = 10, recovery = 45,
+        cancel = {
+            {cmd = "rapid_slash", open = 33},
+            {cmd = "upper_slash", open = 33},
+            {cmd = "void_slash", open = 33},
+            {cmd = "attack", open = 52},
+            {cmd = "jump", open = 60},
+        },
+    },
+    void_slash = {
+        name = "void_slash",
+        startup = 14, active = 8, recovery = 36,
+        cancel = {
+            {cmd = "rapid_slash", open = 50},
+            {cmd = "upper_slash", open = 50},
+            {cmd = "void_slash", open = 50},
+            {cmd = "attack", open = 50},
+            {cmd = "jump", open = 52},
+        },
+    },
+    upper_slash = {
+        name = "upper_slash",
+        startup = 12, active = 8, recovery = 30,
+        cancel = {
+            {cmd = "rapid_slash", open = 32},
+            {cmd = "upper_slash", open = 45},
+            {cmd = "void_slash", open = 22},
+            {cmd = "attack", open = 45},
+            {cmd = "jump", open = 45},
+        },
+    },
+    jump = {
+        name = "jump",
+        startup = 8, active = 4, recovery = 30,
+        cancel = {
+            {cmd = "rapid_slash", open = 1},
+            {cmd = "upper_slash", open = 1},
+            {cmd = "void_slash", open = 1},
+            {cmd = "attack", open = 1},
+        },
+    },
 }
 
 local currentAction = nil       -- nil == idle
@@ -335,6 +467,25 @@ function love.load()
     love.graphics.setFont(font)
     love.window.setMode(1080, 860)
     love.graphics.setBackgroundColor(0.10, 0.10, 0.12)
+    -- 把启动前已连接的手柄纳入（joystickadded 在 load 之前已发完）
+    for _, j in ipairs(love.joystick.getJoysticks()) do
+        if j:isGamepad() then gamepads[#gamepads + 1] = j end
+    end
+end
+
+-- 手柄热插拔
+function love.joystickadded(j)
+    if not j:isGamepad() then return end
+    for _, gp in ipairs(gamepads) do if gp == j then return end end
+    gamepads[#gamepads + 1] = j
+    addLog("gamepad connected: " .. (j:getName() or "?"), {0.4, 0.8, 1})
+end
+
+function love.joystickremoved(j)
+    for i, gp in ipairs(gamepads) do
+        if gp == j then table.remove(gamepads, i); break end
+    end
+    addLog("gamepad removed", {0.55, 0.55, 0.6})
 end
 
 function love.update(dt)
@@ -649,6 +800,13 @@ function love.draw()
         {"L=", "jump", YELLOW},
     }); y = y + 16
     printKeyline(y, 12, 22, {
+        {"X=", "attack", GREEN},
+        {"R+X=", "rapid_slash", CYAN},
+        {"L+X=", "upper_slash", CYAN},
+        {"L>R+X=", "void_slash", CYAN},
+        {"A=", "jump", YELLOW},
+    }); y = y + 16
+    printKeyline(y, 12, 22, {
         {"P=", "pause", GRAY},
         {".=", "step", GRAY},
         {"H=", "hitstop", GRAY},
@@ -687,7 +845,8 @@ function love.draw()
     local phaseCol = ({startup={0.6,0.6,1}, active={1,0.5,0.3}, recovery={1,0.85,0.2}, idle=GRAY})[phase]
     setColor(phaseCol)
     love.graphics.print("action: " .. pad(aName, 14) .. " phase: " .. pad(phase, 9) ..
-                         " frame: " .. fr .. "/" .. total, 12, y); y = y + 20
+                         " frame: " .. fr .. "/" .. total ..
+                         "  abs: " .. actionAbsFrame(currentAction) .. "/" .. (currentAction and currentAction.total or 0), 12, y); y = y + 20
 
     -- 街霸风格帧格（每帧固定 8px，按相位着色，当前帧白框；超宽自动换行）
     if currentAction then
@@ -750,6 +909,63 @@ function love.draw()
     end
     y = drawRawRow({"left","right","up","down","attack"}, y)
     y = drawRawRow({"jump","shoot","lock","special"}, y)
+    y = y + 6
+
+    -- ===== RAW GAMEPAD (live; Xbox layout) =====
+    setColor(CYAN)
+    love.graphics.print("-- RAW GAMEPAD (live; Xbox: LS/DPad=move, X/RB=atk, A=jump, Y/RT=shoot, LB/LT=lock, B=special) --", 12, y)
+    y = y + 16
+    if #gamepads == 0 then
+        setColor(GRAY); love.graphics.print("(no gamepad connected)", 12, y); y = y + 16
+    else
+        local gp = gamepads[1]
+        local dpl = gp:isGamepadDown("dpleft")
+        local dpr = gp:isGamepadDown("dpright")
+        local dpu = gp:isGamepadDown("dpup")
+        local dpd = gp:isGamepadDown("dpdown")
+        local xb = gp:isGamepadDown("x")
+        local ab = gp:isGamepadDown("a")
+        local yb = gp:isGamepadDown("y")
+        local bb = gp:isGamepadDown("b")
+        local lb = gp:isGamepadDown("leftshoulder")
+        local rb = gp:isGamepadDown("rightshoulder")
+        -- 扳机是模拟轴，用轴值判断（静止 0，按下趋向 1）
+        local lt = (gp:getGamepadAxis("triggerleft")  or 0) > STICK_DEADZONE
+        local rt = (gp:getGamepadAxis("triggerright") or 0) > STICK_DEADZONE
+        local function drawGpRow(items, yy)
+            local x = 12
+            for _, it in ipairs(items) do
+                setColor(it[2] and GREEN or GRAY)
+                love.graphics.print(pad(it[1], 12), x, yy)
+                x = x + 100
+            end
+            return yy + 16
+        end
+        y = drawGpRow({
+            {"dpl:" .. (dpl and 1 or 0), dpl},
+            {"dpr:" .. (dpr and 1 or 0), dpr},
+            {"dpu:" .. (dpu and 1 or 0), dpu},
+            {"dpd:" .. (dpd and 1 or 0), dpd},
+        }, y)
+        y = drawGpRow({
+            {"X:" .. (xb and 1 or 0), xb},
+            {"A:" .. (ab and 1 or 0), ab},
+            {"Y:" .. (yb and 1 or 0), yb},
+            {"B:" .. (bb and 1 or 0), bb},
+        }, y)
+        y = drawGpRow({
+            {"LB:" .. (lb and 1 or 0), lb},
+            {"RB:" .. (rb and 1 or 0), rb},
+            {"LT:" .. (lt and 1 or 0), lt},
+            {"RT:" .. (rt and 1 or 0), rt},
+        }, y)
+        local ax = gp:getGamepadAxis("leftx") or 0
+        local ay = gp:getGamepadAxis("lefty") or 0
+        setColor(GRAY)
+        love.graphics.print(string.format("LS: x=%+.2f y=%+.2f  (deadzone %.2f)  [%s]",
+            ax, ay, STICK_DEADZONE, gp:getName() or "?"), 12, y)
+        y = y + 16
+    end
     y = y + 6
 
     -- ===== COMMANDS =====
