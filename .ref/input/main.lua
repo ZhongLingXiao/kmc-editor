@@ -510,14 +510,10 @@ function love.update(dt)
     -- ===== 第1步（续）：推进当前动作（hitstop 期间冻结 = 受击定格）=====
     if currentAction and not in_hitstop then
         local evt = Action.update(currentAction)
-        if evt == "to_active" then
-            addLog("action " .. currentAction.name .. " -> ACTIVE", {0.4, 0.8, 1})
-        elseif evt == "to_recovery" then
-            addLog("action " .. currentAction.name .. " -> RECOVERY (cancel OPEN)", {1, 0.85, 0.2})
-        elseif evt == "to_idle" then
-            addLog("action " .. currentAction.name .. " -> idle", {0.6, 0.6, 0.6})
+        if evt == "to_idle" then
             currentAction = nil
             comboIndex = 0  -- combo dropped (no cancel happened)
+            addLog("---- idle (f" .. frameCount .. ") ----", {0.4, 0.4, 0.45})
         end
     end
 
@@ -606,7 +602,6 @@ function love.update(dt)
                     comboIndex = 0
                     addLog("TRIGGER " .. cmd.name .. " -> " .. currentAction.name .. "  (cancel from " .. prev .. ")", {0.3, 1, 0.3})
                 end
-                addLog("action " .. currentAction.name .. " -> STARTUP", {0.4, 0.8, 1})
                 break  -- 优先级：每帧只触发一个技能
             else
                 -- 命令已缓冲但取消窗口关闭（还在 startup/active），
@@ -811,6 +806,7 @@ function love.draw()
         {"P=", "pause", GRAY},
         {".=", "step", GRAY},
         {"H=", "hitstop", GRAY},
+        {"C=", "clear log", GRAY},
         {"ESC=", "quit", GRAY},
     }); y = y + 18
 
@@ -1052,6 +1048,10 @@ function love.keypressed(key)
     if key == "p" then
         paused = not paused
         addLog(paused and "paused" or "resumed", GRAY)
+    end
+    if key == "c" then
+        for i = #log, 1, -1 do log[i] = nil end
+        addLog("log cleared", GRAY)
     end
     if key == "." then
         stepOnce = true
