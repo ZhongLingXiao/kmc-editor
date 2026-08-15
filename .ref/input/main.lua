@@ -167,7 +167,22 @@ function Command.new(def)
         cmd.completed[i] = false
         cmd.step_timers[i] = 0
     end
+    -- 预计算：该命令涉及的所有键名集合（用于子集判断）
+    cmd.keySet = {}
+    for _, step in ipairs(cmd.steps) do
+        for _, k in ipairs(step.keys) do
+            cmd.keySet[k.name] = true
+        end
+    end
     return cmd
+end
+
+-- 判断 cmdA 的键集合是否是 cmdB 的子集
+function Command.isSubsetOf(cmdA, cmdB)
+    for key in pairs(cmdA.keySet) do
+        if not cmdB.keySet[key] then return false end
+    end
+    return true
 end
 
 function Command.reset(cmd)
@@ -585,6 +600,16 @@ function love.update(dt)
                 local wMatched = (cmd.cur_buffer_time > snap[cmd].buf)
                 cmd._peakBuf = cmd.cur_buffer_time
                 cmd.cur_buffer_time = 0  -- 消费胜者
+                -- 清理同帧匹配的子集命令（避免 cascade）
+                for _, sub in ipairs(cmds) do
+                    if sub ~= cmd
+                       and sub.cur_buffer_time > snap[sub].buf  -- 本帧匹配了（含刷新）
+                       and Command.isSubsetOf(sub, cmd)          -- 是胜者子集
+                    then
+                        sub.cur_buffer_time = 0
+                        addLog("cleared subset " .. sub.name, {0.8, 0.5, 0.3})
+                    end
+                end
                 local prev = currentAction and currentAction.name or "idle"
                 -- ===== 第5步：执行技能（启动新动作）=====
                 if cmd.name == "attack" then
