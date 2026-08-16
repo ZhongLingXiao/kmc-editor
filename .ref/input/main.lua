@@ -273,7 +273,7 @@ function Action.new(def)
         startup = def.startup or 4,
         active = def.active or 3,
         recovery = def.recovery or 12,
-        cancel = def.cancel or {},   -- 取消窗口表: {{cmd=..., open=..., [close=...]}}, close 默认 = total
+        cancel = def.cancel or {},   -- 取消窗口表: {{cmd=取消目标动作, open=..., [close=...]}}, close 默认 = total
         phase = "idle",
         frame = 0,
     }
@@ -376,47 +376,49 @@ local function getCmdsByPriority()
     return cmdsByPriority
 end
 
--- combo chain: each J press during a hit's recovery cancels into the next hit
+-- 所有可播放动作统一放在 actions：cancel 窗口的 cmd 直接写目标动作名。
+-- A1/A2 后摇前半接下一段，后半重开 A1；A3 后摇直接接 A1。
 -- basic 动作：特殊技可从前摇取消（自由），attack 后摇起始，jump 后摇~70%
-local comboHits = {
-    {
+local actions = {
+    atk_1 = {
         name = "atk_1",
+        input = "attack",
         startup = 25, active = 12, recovery = 45,
         cancel = {
             {cmd = "rapid_slash", open = 13},
             {cmd = "upper_slash", open = 13},
             {cmd = "void_slash", open = 13},
-            {cmd = "attack", open = 38},
+            {cmd = "atk_2", open = 38, close = 59},
+            {cmd = "atk_1", open = 60},
             {cmd = "jump", open = 69},
         },
     },
-    {
+    atk_2 = {
         name = "atk_2",
+        input = "attack",
         startup = 25, active = 12, recovery = 45,
         cancel = {
             {cmd = "rapid_slash", open = 13},
             {cmd = "upper_slash", open = 13},
             {cmd = "void_slash", open = 13},
-            {cmd = "attack", open = 38},
+            {cmd = "atk_3", open = 38, close = 59},
+            {cmd = "atk_1", open = 60},
             {cmd = "jump", open = 69},
         },
     },
-    {  -- finisher
+    atk_3 = {  -- finisher
         name = "atk_3",
+        input = "attack",
         startup = 30, active = 15, recovery = 60,
         cancel = {
             {cmd = "rapid_slash", open = 15},
             {cmd = "upper_slash", open = 15},
             {cmd = "void_slash", open = 15},
-            {cmd = "attack", open = 46},
+            {cmd = "atk_1", open = 46},
             {cmd = "jump", open = 88},
         },
     },
-}
-local comboIndex = 0   -- which combo hit is currently playing (0 = none)
-
--- 特殊技动作：承诺招，后摇可被取消（special-cancel 后摇靠前；attack/jump 按承诺度）
-local actionDefs = {
+    -- 特殊技动作：承诺招，后摇可被取消（special-cancel 后摇靠前；attack/jump 按承诺度）
     rapid_slash = {
         name = "rapid_slash",
         startup = 18, active = 10, recovery = 45,
@@ -424,7 +426,7 @@ local actionDefs = {
             {cmd = "rapid_slash", open = 33},
             {cmd = "upper_slash", open = 33},
             {cmd = "void_slash", open = 33},
-            {cmd = "attack", open = 52},
+            {cmd = "atk_1", open = 52},
             {cmd = "jump", open = 60},
         },
     },
@@ -435,7 +437,7 @@ local actionDefs = {
             {cmd = "rapid_slash", open = 50},
             {cmd = "upper_slash", open = 50},
             {cmd = "void_slash", open = 50},
-            {cmd = "attack", open = 50},
+            {cmd = "atk_1", open = 50},
             {cmd = "jump", open = 52},
         },
     },
@@ -446,7 +448,7 @@ local actionDefs = {
             {cmd = "rapid_slash", open = 32},
             {cmd = "upper_slash", open = 45},
             {cmd = "void_slash", open = 22},
-            {cmd = "attack", open = 45},
+            {cmd = "atk_1", open = 45},
             {cmd = "jump", open = 45},
         },
     },
@@ -457,10 +459,39 @@ local actionDefs = {
             {cmd = "rapid_slash", open = 1},
             {cmd = "upper_slash", open = 1},
             {cmd = "void_slash", open = 1},
-            {cmd = "attack", open = 1},
+            {cmd = "atk_1", open = 1},
             {cmd = "jump", open = 42},
         },
     },
+}
+
+-- 给出“取消到某个动作”所需要的输入命令。
+--
+-- cancel 窗口里的 cmd 现在写的是目标动作名，而不是输入命令名：
+--   {cmd = "atk_2", open = 38}        -- 取消到 A2；A2 的 input 决定按什么键
+--   {cmd = "rapid_slash", open = 13}  -- 取消到突进斩；未设置 input，默认按 rapid_slash 命令
+--
+-- 普攻三段都声明 input = "attack"，所以：
+--   inputForAction("atk_1") == "attack"
+--   inputForAction("atk_2") == "attack"
+--   inputForAction("atk_3") == "attack"
+--
+-- 将来新增攻击键分支时，只在动作定义中加 input = "attack"：
+--   atk_2_branch = {name = "atk_2_branch", input = "attack", ...}
+-- 此后 {cmd = "atk_2_branch", ...} 会自动被当作攻击键取消，
+-- 不需要再修改 canFire、动作切换或 UI 的判断。
+--
+-- input 缺省时，动作名本身就是命令名，例如：
+--   inputForAction("jump")         == "jump"
+--   inputForAction("rapid_slash")  == "rapid_slash"
+local function inputForAction(name)
+    local def = actions[name]
+    return def and (def.input or name) or name
+end
+
+-- idle 没有动作取消表；这里只有“输入命令 → 起手动作”的映射。
+local idleCancel = {
+    attack = "atk_1",
 }
 
 local currentAction = nil       -- nil == idle
@@ -561,7 +592,6 @@ function love.update(dt)
         local evt = Action.update(currentAction)
         if evt == "to_idle" then
             currentAction = nil
-            comboIndex = 0  -- combo dropped (no cancel happened)
             addLog("---- idle (f" .. frameCount .. ") ----", {0.4, 0.4, 0.45})
         end
     end
@@ -615,7 +645,8 @@ function love.update(dt)
         if not currentAction then return true end
         local af = actionAbsFrame(currentAction)
         for _, w in ipairs(currentAction.cancel or {}) do
-            if w.cmd == cmdName and af >= w.open and af <= (w.close or currentAction.total) then
+            if inputForAction(w.cmd) == cmdName
+               and af >= w.open and af <= (w.close or currentAction.total) then
                 return true
             end
         end
@@ -646,21 +677,20 @@ function love.update(dt)
                 end
                 local prev = currentAction and currentAction.name or "idle"
                 -- ===== 第5步：执行技能（启动新动作）=====
-                if cmd.name == "attack" then
-                    -- 连击链：atk_1 -> atk_2 -> atk_3 -> atk_1 ...
-                    local nextIndex = (comboIndex % #comboHits) + 1
-                    local def = comboHits[nextIndex]
-                    currentAction = Action.new(def)
-                    Action.start(currentAction)
-                    comboIndex = nextIndex
-                    addLog("TRIGGER " .. cmd.name .. "  (" .. def.name .. " " .. nextIndex .. "/" .. #comboHits .. ", from " .. prev .. ")", {0.3, 1, 0.3})
-                else
-                    -- 特殊技 / 跳跃：启动对应动作，重置连击链
-                    currentAction = Action.new(actionDefs[cmd.name])
-                    Action.start(currentAction)
-                    comboIndex = 0
-                    addLog("TRIGGER " .. cmd.name .. "  (from " .. prev .. ")", {0.3, 1, 0.3})
+                local dest = idleCancel[cmd.name] or cmd.name
+                if currentAction then
+                    local af = actionAbsFrame(currentAction)
+                    for _, w in ipairs(currentAction.cancel or {}) do
+                        if inputForAction(w.cmd) == cmd.name
+                           and af >= w.open and af <= (w.close or currentAction.total) then
+                            dest = w.cmd
+                            break
+                        end
+                    end
                 end
+                currentAction = Action.new(actions[dest])
+                Action.start(currentAction)
+                addLog("TRIGGER " .. cmd.name .. " → " .. dest .. "  (from " .. prev .. ")", {0.3, 1, 0.3})
                 break  -- 优先级：每帧只触发一个技能
             else
                 -- 命令已缓冲但取消窗口关闭（还在 startup/active），
@@ -768,7 +798,7 @@ local function drawCancelTracks(x, y, w, act)
     local nameW = 100
     local barX, barW = x + nameW, 300
     local rangeX = barX + barW + 12
-    local statX = rangeX + 60
+    local statX = rangeX + 200
     local barH, rowH = 10, 16
     local function fx(frame)  -- 帧 -> 迷你条 x 坐标
         return barX + (frame - 1) / math.max(1, act.total - 1) * barW
@@ -781,21 +811,30 @@ local function drawCancelTracks(x, y, w, act)
     love.graphics.print("now", statX, y)
     y = y + rowH
     for _, cname in ipairs(order) do
-        local open, close = nil, act.total
+        local wins = {}
         for _, win in ipairs(act.cancel or {}) do
-            if win.cmd == cname then open = win.open; close = win.close or act.total; break end
+            if inputForAction(win.cmd) == cname then
+                wins[#wins+1] = win
+            end
         end
-        if open then
+        if #wins > 0 then
             -- 名字
             setColor(colFor[cname])
             love.graphics.print(cname, x, y)
             -- 迷你条：暗底(整条动作)
             love.graphics.setColor(0.16, 0.16, 0.18)
             love.graphics.rectangle("fill", barX, y + 3, barW, barH)
-            -- 亮色窗口段
+            -- 亮色窗口段（attack 可能有两截）
             local c = colFor[cname]
-            love.graphics.setColor(c[1], c[2], c[3], 0.9)
-            love.graphics.rectangle("fill", fx(open), y + 3, math.max(1, fx(close) - fx(open)), barH)
+            local canNow = false
+            local rangeParts = {}
+            for _, win in ipairs(wins) do
+                local open, close = win.open, win.close or act.total
+                love.graphics.setColor(c[1], c[2], c[3], 0.9)
+                love.graphics.rectangle("fill", fx(open), y + 3, math.max(1, fx(close) - fx(open)), barH)
+                rangeParts[#rangeParts+1] = open .. "-" .. close .. " " .. win.cmd
+                if absF >= open and absF <= close then canNow = true end
+            end
             -- 当前帧白竖线
             if absF > 0 then
                 love.graphics.setColor(1, 1, 1)
@@ -804,9 +843,8 @@ local function drawCancelTracks(x, y, w, act)
             end
             -- 帧范围
             setColor(GRAY)
-            love.graphics.print(open .. "-" .. close, rangeX, y)
+            love.graphics.print(table.concat(rangeParts, "  "), rangeX, y)
             -- 状态点（实心绿=能取消，空心灰=不能）
-            local canNow = absF >= open and absF <= close
             local dotX, dotY = statX + 5, y + 8
             if canNow then
                 setColor(GREEN)
@@ -989,8 +1027,8 @@ function love.draw()
     else
         setColor(GRAY); love.graphics.print("(idle — no action to cancel)", LX, yL); yL = yL + 18
     end
-    setColor(comboIndex > 0 and YELLOW or GRAY)
-    love.graphics.print("combo: " .. comboIndex .. "/" .. #comboHits, LX + 708, yL)
+    setColor(currentAction and YELLOW or GRAY)
+    love.graphics.print(currentAction and currentAction.name or "idle", LX + 708, yL)
     yL = yL + 4
 
     -- ===== INPUT BUFFER（右列）=====
