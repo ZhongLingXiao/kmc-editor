@@ -1,0 +1,502 @@
+;======================================================================================================================================================
+;Burst HUD
+[Statedef 9875]
+type = S
+physics = N
+movetype = I
+anim = 9999
+ctrl = 0
+velset = 0, 0
+sprpriority = 4
+
+[State Pal, 1]
+type = remappal
+trigger1 = numhelper(9884)
+source = 20,0
+dest = 21,0
+ignorehitpause = 1
+persistent = 0
+
+[State Pal, 1]
+type = remappal
+trigger1 = numhelper(9884)
+source = 25,0
+dest = 26,0
+ignorehitpause = 1
+persistent = 0
+
+[State Pal, 1]
+type = remappal
+trigger1 = !numhelper(9884)
+source = 20,0
+dest = 20,0
+ignorehitpause = 1
+persistent = 0
+
+[State Pal, 1]
+type = remappal
+trigger1 = !numhelper(9884)
+source = 25,0
+dest = 25,0
+ignorehitpause = 1
+persistent = 0
+
+[State 1,]
+type = PlaySnd
+trigger1 = roundstate = 2
+Triggerall = root,var(50) = 0
+triggerall = !numexplod(9876)
+triggerall = root,alive != 0
+value = 8005,3
+persistent = 1
+
+[State -2]
+type = Explod
+trigger1 = roundstate = 2
+Trigger1 = root,var(50) = 0
+trigger1 = !numexplod(9876)
+trigger2 = !time
+triggerall = root,alive != 0
+anim = 98755
+scale = 0.4,0.4
+postype = Back
+pos = 12,45
+sprpriority = -6
+bindtime = -1
+pausemovetime = -1
+supermovetime = -1
+ignorehitpause = 1
+ownpal = 1
+persistent = 1
+
+[State -2]
+type = Explod
+trigger1 = !NumHelper(2957)
+triggerall = root,fvar(35) > 0
+trigger1 = !MatchOver
+trigger1 = !lose
+trigger1 = NumExplod(98756) = 0
+anim = 98756
+ID = 98756
+scale = 0.25,0.25
+postype = Back
+pos = 12,45
+sprpriority = -6
+bindtime = -1
+pausemovetime = -1
+supermovetime = -1
+removetime = -1
+ignorehitpause = 1
+ownpal = 1
+persistent = 1
+
+[State -2]
+type = RemoveExplod
+trigger1 = root,fvar(35) <= 0
+ID = 98756
+persistent = 1
+
+[State -2]
+type = RemoveExplod
+trigger1 = root,fvar(35) <= 0
+ID = 98756
+persistent = 1
+
+[State -2]
+type = RemoveExplod
+trigger1 = root,fvar(35) <= 0
+ID = 98756
+persistent = 1
+
+[State -2]
+type = Explod
+trigger1 = !NumHelper(2957)
+trigger1 = root,var(50) = 0 
+trigger1 = !MatchOver
+trigger1 = !lose
+trigger1 = NumExplod(9876) = 0
+anim = 9876
+ID = 9876
+scale = 0.25,0.25
+postype = Back
+pos = 12,45
+sprpriority = -7
+bindtime = -1
+removetime = -1
+pausemovetime = -1
+supermovetime = -1
+ignorehitpause = 1
+ownpal = 1
+
+[State -2]
+type = Explod
+trigger1 = !NumHelper(2957)
+trigger1 = root,var(50) = 0 
+trigger1 = !MatchOver
+trigger1 = !lose
+trigger1 = NumExplod(98765) = 0
+anim = 98765
+ID = 98765
+scale = 0.25,0.25
+postype = Back
+pos = 12,45
+sprpriority = -8
+bindtime = -1
+removetime = -1
+pausemovetime = -1
+supermovetime = -1
+ignorehitpause = 1
+ownpal = 1
+
+[State -2]
+type = Explod
+trigger1 = !NumHelper(2957)
+trigger1 = root,fvar(19) <= 0 
+trigger1 = !MatchOver
+trigger1 = !lose
+trigger1 = NumExplod(98766) = 0
+anim = 98766
+ID = 98766
+scale = 0.25,0.25
+postype = Back
+pos = 12,45
+sprpriority = -9
+bindtime = -1
+removetime = -1
+pausemovetime = -1
+supermovetime = -1
+ignorehitpause = 1
+ownpal = 1
+
+[State -2]
+type = RemoveExplod
+trigger1 = numhelper(9884)
+ID = 9876
+persistent = 0
+
+[State -2]
+type = RemoveExplod
+trigger1 = numhelper(9884)
+ID = 98765
+persistent = 0
+
+[State -2]
+type = RemoveExplod
+trigger1 = numhelper(9884)
+ID = 98766
+persistent = 0
+
+[State -2]
+type = RemoveExplod
+triggerall = root,var(50) = 1
+trigger1 = root,stateno = 750 || 2950
+ID = 9876
+
+[State -2]
+type = RemoveExplod
+triggerall = root,var(50) = 1
+trigger1 = root,stateno = 750 || 2950
+ID = 98765
+
+[State -2]
+type = RemoveExplod
+trigger1 = root,fvar(19) > 0
+trigger1 = root,stateno = 750 || 2950
+ID = 98766
+
+[State -2]
+type = Explod
+trigger1 = NumExplod(9879) = 0
+anim = 9879
+ID = 9879
+scale = root,fvar(19)*.00018,.35
+postype = Back
+pos = 12,45
+sprpriority = -8
+bindtime = -1
+pausemovetime = -1
+supermovetime = -1
+ignorehitpause = 1
+ownpal = 1
+
+[State -2]
+type = Explod
+trigger1 = NumExplod(98799) = 0
+anim = 98799
+ID = 98799
+scale = root,fvar(19)*.00032,.35
+postype = Back
+pos = 12,45
+sprpriority = -7
+bindtime = -1
+pausemovetime = -1
+supermovetime = -1
+ignorehitpause = 1
+ownpal = 1
+
+[State -2]
+type = modifyExplod
+trigger1 = root,fvar(19) > 0
+ID = 9879
+scale = root,fvar(19)*.00018,.35
+pausemovetime = -1
+supermovetime = -1
+ignorehitpause = 1
+persistent = 1
+
+[State -2]
+type = RemoveExplod
+trigger1 = root,fvar(19) <= 0
+ID = 9879
+ignorehitpause = 1
+
+[State -2]
+type = modifyExplod
+trigger1 = root,fvar(19) > 0
+ID = 98799
+scale = root,fvar(19)*.00032,.35
+pausemovetime = -1
+supermovetime = -1
+ignorehitpause = 1
+ownpal = 1
+persistent = 1
+
+[State -2]
+type = RemoveExplod
+trigger1 = root,fvar(19) <= 0
+ID = 98799
+ignorehitpause = 1
+
+[State -2]
+type = Explod
+triggerall = root,fvar(19) > 0
+trigger1 = !NumHelper(2957)
+trigger1 = root,var(50) = 1
+trigger1 = !MatchOver
+trigger1 = !lose
+trigger1 = NumExplod(9878) = 0
+anim = 9878
+ID = 9878
+scale = 0.25,0.25
+postype = Back
+pos = 12,45
+sprpriority = -7
+bindtime = -1
+pausemovetime = -1
+supermovetime = -1
+ignorehitpause = 1
+ownpal = 1
+
+[State -2]
+type = Explod
+triggerall = root,fvar(19) > 0
+trigger1 = !NumHelper(2957)
+trigger1 = root,var(50) = 1
+trigger1 = !MatchOver
+trigger1 = !lose
+trigger1 = NumExplod(98788) = 0
+anim = 98788
+ID = 98788
+scale = 0.25,0.25
+postype = Back
+pos = 12+((root,fvar(19))*0.046),45
+sprpriority = -7
+bindtime = 1
+pausemovetime = -1
+supermovetime = -1
+ignorehitpause = 1
+ownpal = 1
+
+[State -2]
+type = modifyExplod
+trigger1 = root,fvar(19) > 0
+ID = 98788
+pos = 12+(root,fvar(19)*0.046),45
+scale = 0.25,0.25
+postype = Back
+sprpriority = -7
+bindtime = 1
+pausemovetime = -1
+supermovetime = -1
+ignorehitpause = 1
+ownpal = 1
+
+[State -2]
+type = RemoveExplod
+trigger1 = root,fvar(19) <= 0
+ID = 9878
+
+[State -2]
+type = RemoveExplod
+trigger1 = root,fvar(19) <= 0
+ID = 98788
+
+[State -2]
+type = RemoveExplod
+trigger1 = numhelper(9884)
+ID = 9878
+persistent = 0
+
+[State -2]
+type = RemoveExplod
+trigger1 = numhelper(9884)
+ID = 98788
+persistent = 0
+
+[State -2, Can't Burst]
+type = explod
+triggerall = root,var(50) = 0 
+triggerall = (NumExplod(9875) = 0)
+triggerall = roundstate = 2
+trigger1 = numhelper(9000)
+trigger1 = helper(9000),var(3) >= 1
+anim = 9875
+id = 9875
+postype = Back
+pos = 12,45
+scale = 0.25,0.25
+sprpriority = -6
+bindtime = -1
+pausemovetime = -1
+supermovetime = -1
+ignorehitpause = 1
+ownpal = 1
+
+[State -2]
+type = Explod
+triggerall = root,fvar(19) > 0
+trigger1 = !NumHelper(2957)
+trigger1 = root,var(50) = 1
+trigger1 = !MatchOver
+trigger1 = !lose
+trigger1 = NumExplod(98798) = 0
+anim = 98798
+ID = 98798
+scale = 0.25,0.25
+postype = Back
+pos = 12+((root,fvar(19))*0.046),45
+sprpriority = -7
+bindtime = -1
+pausemovetime = -1
+supermovetime = -1
+ignorehitpause = 1
+ownpal = 1
+
+[State -2]
+type = Explod
+triggerall = root,fvar(19) > 0
+trigger1 = !NumHelper(2957)
+trigger1 = root,var(50) = 1
+trigger1 = !MatchOver
+trigger1 = !lose
+trigger1 = NumExplod(98797) = 0
+anim = 98798
+ID = 98797
+scale = 0.25,0.25
+postype = Back
+pos = 12,45
+sprpriority = -7
+bindtime = -1
+pausemovetime = -1
+supermovetime = -1
+ignorehitpause = 1
+ownpal = 1
+
+[State -2]
+type = modifyExplod
+trigger1 = root,fvar(19) > 0
+ID = 98798
+pos = 12+(root,fvar(19)*0.046),45
+scale = 0.25,0.25
+postype = Back
+sprpriority = -7
+bindtime = -1
+pausemovetime = -1
+supermovetime = -1
+ignorehitpause = 1
+ownpal = 1
+
+[State -2]
+type = RemoveExplod
+trigger1 = root,fvar(19) <= 0
+ID = 98797
+
+[State -2]
+type = RemoveExplod
+trigger1 = root,fvar(19) <= 0
+ID = 98798
+
+[State -2]
+type = RemoveExplod
+trigger1 = numhelper(9000)
+trigger1 = helper(9000),var(3) < 1
+ID = 9875
+
+[State -2]
+type = Explod
+triggerall = root,fvar(35) <= 0
+triggerall = root,fvar(19) <= 0
+trigger1 = !NumHelper(2957)
+trigger1 = root,var(50) = 1
+trigger1 = root,var(58) < 10000
+;trigger1 = !MatchOver
+;trigger1 = !lose
+trigger1 = NumExplod(98758) = 0
+Anim = 98758
+ID = 98758
+scale = 0.25,0.25
+postype = Back
+pos = 12,45
+facing = ifelse(teamside = 1,1,-1)
+sprpriority = -6
+bindtime = -1
+;removetime = 1
+pausemovetime = -1
+supermovetime = -1
+ignorehitpause = 1
+ownpal = 1
+
+[State -2]
+type = Explod
+triggerall = root,fvar(35) <= 0
+triggerall = root,fvar(19) <= 0
+trigger1 = !NumHelper(2957)
+trigger1 = root,var(50) = 1
+trigger1 = root,var(58) < 10000
+;trigger1 = !MatchOver
+;trigger1 = !lose
+trigger1 = NumExplod(10020)<2
+Anim = 10020+(floor(root,Var(58)/50%200))
+ID = 10020
+scale = 0.25,0.25
+postype = Back
+pos = 12,45
+facing = ifelse(teamside = 1,1,-1)
+sprpriority = -7
+bindtime = -1
+removetime = 1
+pausemovetime = -1
+supermovetime = -1
+ignorehitpause = 1
+ownpal = 1
+
+[State -2]
+type = RemoveExplod
+triggerall = root,var(50) = 0
+trigger1 = roundstate <= 1
+trigger2 = root,stateno = 2952
+ID = 98758
+
+[State -2]
+type = RemoveExplod
+triggerall = root,var(50) = 0
+trigger1 = roundstate <= 1
+trigger2 = root,stateno = 2952
+ID = 10020
+
+[State -2]
+type = poweradd
+triggerall = root,fvar(35) > 0
+trigger1 = roundstate = 2
+value = -2
+persistent = 1

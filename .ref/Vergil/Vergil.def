@@ -1,0 +1,38 @@
+; Player information
+[Info]
+name = "Vergil" 
+displayname = "Vergil" 
+versiondate = 09,30,2009    
+mugenversion = 1.0          
+author = "Resentone"         
+pal.defaults = 1      
+
+[Files]
+cmd     = Vergil.cmd
+cns     = Vergil.cns
+st      = Vergil.cns
+st2     = Helpers.cns
+st3     = -2-3.cns
+st4	= BurstHUD.cns
+stcommon = Vergil_common.cns
+sprite  = Vergil.sff
+anim    = Vergil.air
+sound   = Vergil.snd
+
+[Palette Keymap]
+a = 1
+b = 2
+c = 3
+x = 4
+y = 5
+z = 6
+a2 = 7
+b2 = 8
+c2 = 9
+x2 = 10
+y2 = 11
+z2 = 12
+
+[Arcade]
+;intro.storyboard = intro.def
+;ending.storyboard = ending.def
