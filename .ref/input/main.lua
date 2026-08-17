@@ -377,44 +377,76 @@ local function getCmdsByPriority()
 end
 
 -- 所有可播放动作统一放在 actions：cancel 窗口的 cmd 直接写目标动作名。
--- A1/A2 后摇前半接下一段，后半重开 A1；A3 后摇直接接 A1。
+--
+-- Yamato 地面连段（DMC4SE 命名）：
+--   Combo A: J J J J → yamato_a_1 → a_2 → a_3 → a_4（4 段）
+--   Combo B: J J 停顿 J → yamato_a_1 → a_2 →（停顿）→ yamato_b_3（挑空）
+--   a_1/a_2 是 A/B 共享的；分叉点在 a_2 的后摇：早段按 J 接 a_3，晚段按 J 接 b_3。
+--   没有 b_1/b_2，因为出前两击时还没决定走 A 还是 B。
+--
 -- basic 动作：特殊技可从前摇取消（自由），attack 后摇起始，jump 后摇~70%
 local actions = {
-    atk_1 = {
-        name = "atk_1",
+    yamato_a_1 = {
+        name = "yamato_a_1",
         input = "attack",
         startup = 25, active = 12, recovery = 45,
         cancel = {
             {cmd = "rapid_slash", open = 13},
             {cmd = "upper_slash", open = 13},
             {cmd = "void_slash", open = 13},
-            {cmd = "atk_2", open = 38, close = 59},
-            {cmd = "atk_1", open = 60},
+            {cmd = "yamato_a_2", open = 38, close = 59},
+            {cmd = "yamato_a_1", open = 60},
             {cmd = "jump", open = 69},
         },
     },
-    atk_2 = {
-        name = "atk_2",
+    yamato_a_2 = {
+        name = "yamato_a_2",
         input = "attack",
         startup = 25, active = 12, recovery = 45,
         cancel = {
             {cmd = "rapid_slash", open = 13},
             {cmd = "upper_slash", open = 13},
             {cmd = "void_slash", open = 13},
-            {cmd = "atk_3", open = 38, close = 59},
-            {cmd = "atk_1", open = 60},
+            {cmd = "yamato_a_3", open = 38, close = 50},  -- 早段 → Combo A（快按）
+            {cmd = "yamato_b_3", open = 51, close = 70},  -- 中段 → Combo B（停顿变招）
+            {cmd = "yamato_a_1", open = 71},              -- 晚段 → 重开 A1（太晚错过变招）
             {cmd = "jump", open = 69},
         },
     },
-    atk_3 = {  -- finisher
-        name = "atk_3",
+    yamato_a_3 = {
+        name = "yamato_a_3",
+        input = "attack",
+        startup = 25, active = 12, recovery = 45,
+        cancel = {
+            {cmd = "rapid_slash", open = 13},
+            {cmd = "upper_slash", open = 13},
+            {cmd = "void_slash", open = 13},
+            {cmd = "yamato_a_4", open = 38, close = 59},
+            {cmd = "yamato_a_1", open = 60},
+            {cmd = "jump", open = 69},
+        },
+    },
+    yamato_a_4 = {  -- Combo A 终结
+        name = "yamato_a_4",
         input = "attack",
         startup = 30, active = 15, recovery = 60,
         cancel = {
             {cmd = "rapid_slash", open = 15},
             {cmd = "upper_slash", open = 15},
             {cmd = "void_slash", open = 15},
-            {cmd = "atk_1", open = 46},
+            {cmd = "yamato_a_1", open = 46},
+            {cmd = "jump", open = 88},
+        },
+    },
+    yamato_b_3 = {  -- Combo B 挑空（停顿变招）
+        name = "yamato_b_3",
+        input = "attack",
+        startup = 30, active = 15, recovery = 60,
+        cancel = {
+            {cmd = "rapid_slash", open = 15},
+            {cmd = "upper_slash", open = 15},
+            {cmd = "void_slash", open = 15},
+            {cmd = "yamato_a_1", open = 46},
             {cmd = "jump", open = 88},
         },
     },
@@ -426,7 +458,7 @@ local actions = {
             {cmd = "rapid_slash", open = 33},
             {cmd = "upper_slash", open = 33},
             {cmd = "void_slash", open = 33},
-            {cmd = "atk_1", open = 52},
+            {cmd = "yamato_a_1", open = 52},
             {cmd = "jump", open = 60},
         },
     },
@@ -437,7 +469,7 @@ local actions = {
             {cmd = "rapid_slash", open = 50},
             {cmd = "upper_slash", open = 50},
             {cmd = "void_slash", open = 50},
-            {cmd = "atk_1", open = 50},
+            {cmd = "yamato_a_1", open = 50},
             {cmd = "jump", open = 52},
         },
     },
@@ -448,7 +480,7 @@ local actions = {
             {cmd = "rapid_slash", open = 32},
             {cmd = "upper_slash", open = 45},
             {cmd = "void_slash", open = 22},
-            {cmd = "atk_1", open = 45},
+            {cmd = "yamato_a_1", open = 45},
             {cmd = "jump", open = 45},
         },
     },
@@ -459,7 +491,7 @@ local actions = {
             {cmd = "rapid_slash", open = 1},
             {cmd = "upper_slash", open = 1},
             {cmd = "void_slash", open = 1},
-            {cmd = "atk_1", open = 1},
+            {cmd = "yamato_a_1", open = 1},
             {cmd = "jump", open = 42},
         },
     },
@@ -468,17 +500,19 @@ local actions = {
 -- 给出“取消到某个动作”所需要的输入命令。
 --
 -- cancel 窗口里的 cmd 现在写的是目标动作名，而不是输入命令名：
---   {cmd = "atk_2", open = 38}        -- 取消到 A2；A2 的 input 决定按什么键
---   {cmd = "rapid_slash", open = 13}  -- 取消到突进斩；未设置 input，默认按 rapid_slash 命令
+--   {cmd = "yamato_a_2", open = 38}  -- 取消到 A2；A2 的 input 决定按什么键
+--   {cmd = "rapid_slash", open = 13} -- 取消到突进斩；未设置 input，默认按 rapid_slash 命令
 --
--- 普攻三段都声明 input = "attack"，所以：
---   inputForAction("atk_1") == "attack"
---   inputForAction("atk_2") == "attack"
---   inputForAction("atk_3") == "attack"
+-- 普攻五段都声明 input = "attack"，所以：
+--   inputForAction("yamato_a_1") == "attack"
+--   inputForAction("yamato_a_2") == "attack"
+--   inputForAction("yamato_a_3") == "attack"
+--   inputForAction("yamato_a_4") == "attack"
+--   inputForAction("yamato_b_3") == "attack"
 --
 -- 将来新增攻击键分支时，只在动作定义中加 input = "attack"：
---   atk_2_branch = {name = "atk_2_branch", input = "attack", ...}
--- 此后 {cmd = "atk_2_branch", ...} 会自动被当作攻击键取消，
+--   yamato_c_4 = {name = "yamato_c_4", input = "attack", ...}
+-- 此后 {cmd = "yamato_c_4", ...} 会自动被当作攻击键取消，
 -- 不需要再修改 canFire、动作切换或 UI 的判断。
 --
 -- input 缺省时，动作名本身就是命令名，例如：
@@ -491,7 +525,7 @@ end
 
 -- idle 没有动作取消表；这里只有“输入命令 → 起手动作”的映射。
 local idleCancel = {
-    attack = "atk_1",
+    attack = "yamato_a_1",
 }
 
 local currentAction = nil       -- nil == idle
@@ -794,11 +828,15 @@ local function drawCancelTracks(x, y, w, act)
     local colFor = {rapid_slash = CYAN, upper_slash = CYAN, void_slash = CYAN, attack = GREEN, jump = YELLOW}
     local absF = actionAbsFrame(act)
     local startY = y
+    -- 动作名简写（用于 range 列，避免和 NOW 列重叠）：yamato_a_3 → a3
+    local function shortName(name)
+        return name:gsub("yamato_", "")
+    end
     -- 列布局
     local nameW = 100
     local barX, barW = x + nameW, 300
     local rangeX = barX + barW + 12
-    local statX = rangeX + 200
+    local statX = rangeX + 280
     local barH, rowH = 10, 16
     local function fx(frame)  -- 帧 -> 迷你条 x 坐标
         return barX + (frame - 1) / math.max(1, act.total - 1) * barW
@@ -832,7 +870,7 @@ local function drawCancelTracks(x, y, w, act)
                 local open, close = win.open, win.close or act.total
                 love.graphics.setColor(c[1], c[2], c[3], 0.9)
                 love.graphics.rectangle("fill", fx(open), y + 3, math.max(1, fx(close) - fx(open)), barH)
-                rangeParts[#rangeParts+1] = open .. "-" .. close .. " " .. win.cmd
+                rangeParts[#rangeParts+1] = open .. "-" .. close .. " " .. shortName(win.cmd)
                 if absF >= open and absF <= close then canNow = true end
             end
             -- 当前帧白竖线
