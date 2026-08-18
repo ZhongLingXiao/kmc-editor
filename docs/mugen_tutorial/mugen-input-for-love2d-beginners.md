@@ -3965,31 +3965,55 @@ Player.update 完全用 §9.2 的实现——检查当前状态的取消窗口�
 
 ### 9.8 风格/武器切换（鬼泣特色）
 
-鬼泣的切换分两种：**风格切换**（但丁的骗术/剑圣/枪神/皇家护卫）和**武器切换**（维吉尔的武士刀/拳套/居合）。切换有三种实现方式，看是否有切换动画决定。
+鬼泣的切换分两种：**风格切换**（但丁的骗术/剑圣/枪神/皇家护卫）和**武器切换**（维吉尔的武士刀/拳套/居合）。切换有四种实现方式，看"切换是否进角色状态机"和"有无动画（角色动画 / UI 动画）"决定。
 
-#### 方式 A：切换是一个状态（有切换动画）
+**关键区分：切换不是技能**。武器切换的本质是"改 flag"，不是"放一个技能"。它没有 startup/active/recovery，没有 hitbox，没有取消窗口。即使切换时播了过渡动画（比如收刀拔刀的几帧），那也只是**视觉过渡**，不是技能状态——不参与取消系统，任何时候都能被攻击打断。
 
-维吉尔的武器切换有短动画。这种就用普通的 cancel_windows（§9.2），和攻击状态没区别：
+**角色动画 vs UI 动画**：这是两种独立的动画层：
+
+| 动画层 | 播在哪 | 是否进角色状态机 | 是否技能 | 例子 |
+|---|---|---|---|---|
+| 过渡动画 | 角色精灵本身 | ❌ 不进（纯视觉） | ❌ 不是 | 收刀拔刀几帧 |
+| UI 切换动画 | HUD/武器图标 | ❌ 不进 | ❌ 不是 | 武器图标滑动/淡入淡出 |
+
+DMC 手感的武器切换：**武器 flag 即时切 + 可选过渡动画 + UI 动画**。按下切换键的瞬间，武器 flag 改了，UI 图标播切换动画，角色精灵如果当前是自由状态（idle/跑步）可以播一个短暂过渡动画（"啪"一下切过去），如果当前是攻击中则完全不变继续播攻击。这对应方式 D。
+
+#### 方式 A：有过渡动画的切换（不是技能状态）
+
+切换时如果当前是自由状态（idle/跑步），可以播一个短暂过渡动画（比如收刀拔刀 3-5 帧）让视觉更平滑。**这个过渡动画不是技能**——它没有 startup/active/recovery，没有 hitbox，没有 cancel_windows，任何时候都能被攻击打断。
 
 ```lua
-weapon_switch = {
-    total_frames = 20,  -- 切换动画 20 帧
-    cancel_windows = {
-        -- 切换动画前 5 帧不能取消（强制播放）
-        -- 第 5-15 帧可以取消到 stand 或某些招
-        {start = 5, finish = 15,
-         allowed = {"stand", "slash"},
-         condition = "always"},
-    },
-}
+-- 切换是即时的 flag 改（方式 D 核心）
+-- 过渡动画是可选的视觉补充，不占用 currentAction，不参与取消系统
+function onSwitchInput(player)
+    if Input.justPressed("trigger_r") then
+        player.weapon = nextWeapon(player.weapon)
+        weaponUI:switchTo(player.weapon)  -- UI 动画（独立层）
 
--- 进入切换状态时切换武器
-function onEnterWeaponSwitch(player)
-    player.weapon = next_weapon(player.weapon)
+        -- ★ 可选：如果当前是自由状态，播过渡动画
+        -- 过渡动画不是技能：没有 cancel_windows，能被攻击打断
+        if player:isFreeState() then  -- idle/跑步/跳跃等自由状态
+            player:playTransitionAnim("weapon_switch", 3)  -- 3 帧过渡动画
+        end
+        -- ★ 如果当前是攻击中，完全不变，继续播攻击
+    end
 end
 ```
 
-切换动画期间不能攻击，但能取消到 stand 或某些招。这和普通攻击状态完全一样。
+**过渡动画 vs 技能状态的区别**：
+
+| | 过渡动画 | 技能状态（攻击/必杀） |
+|---|---|---|
+| 有 startup/active/recovery | ❌ | ✅ |
+| 有 hitbox（攻击判定） | ❌ | ✅ |
+| 有 cancel_windows | ❌ | ✅ |
+| 占用 currentAction | ❌（纯视觉层） | ✅ |
+| 可被攻击打断 | ✅（任何时候） | 看取消窗口 |
+| 参与 cancel 路由 | ❌ | ✅ |
+
+**关键**：过渡动画不占用 currentAction，不参与取消系统。它只是角色精灵的视觉表现——武器 flag 已经即时切了，过渡动画只是让"啪一下切过去"看起来更平滑。2D 游戏可以不要过渡动画（直接切），也可以加几帧让视觉更舒服，但不管有没有过渡动画，逻辑上都是方式 D（即时切 flag）。
+
+
 
 #### 方式 B：即时切换 + 短暂冷却（无动画）
 
@@ -4051,7 +4075,7 @@ function onSpecialInput(player, buf)
     -- 1. 武器切换（如果是切换键组合，比如锁定+特殊）
     --    读 buf（Buffer 层），不读 Input
     if buf:held("lock") and buf:justPressed("special") then
-        switchWeapon()  -- 即时切换（方式 B），不进状态
+        switchWeapon()  -- 即时切换（方式 B 或 D），不进状态
         return
     end
 
@@ -4071,15 +4095,123 @@ function onSpecialInput(player, buf)
 end
 ```
 
-#### 切换的三种方式汇总
+#### 普攻 cancel 路径的跨武器路由
 
-| 方式 | 是否进状态机 | 例子 | 适用场景 |
-|---|---|---|---|
-| A. 切换是状态 | ✅ | 维吉尔武器切换动画 | 有专门切换动画 |
-| B. 即时切换+冷却 | ❌ | 但丁风格切换 | 无动画，立刻生效 |
-| C. 模式标记分流 | ❌（配合 B） | 后续命令按风格/武器分流 | 影响后续命令解析 |
+上面讲的是"特殊技按武器分流"（即时命令路径）。但 DMC 手感下还有一个关键场景：**普攻 cancel 路径跨武器路由**——攻击中切武器，再按攻击，应该出切完武器后的第一段。
 
-实际游戏通常 B + C 组合：即时切换标志 + 后续命令根据标志分流。如果切换有动画，再加 A。
+**场景**：Yamato A1 攻击中切到 Beowulf，再按 attack，后摇窗口应路由到 `beowulf_a_1`，而不是继续 Yamato 的 A2。
+
+**实现方式**：cancel 表显式列出所有武器的 dest：
+
+```lua
+yamato_a_1 = {
+    cancel = {
+        {cmd = "rapid_slash", open = 13},               -- 特殊技（武器无关，无前缀）
+        {cmd = "upper_slash", open = 13},
+        {cmd = "void_slash", open = 13},
+        {cmd = "yamato_a_2",     open = 38, close = 59},  -- 同武器下一段
+        {cmd = "beowulf_a_1",   open = 38, close = 59},  -- ★ 跨武器接续：切到 Beowulf 第一段
+        {cmd = "force_edge_a_1", open = 38, close = 59},  -- ★ 跨武器接续：切到 Force Edge 第一段
+        {cmd = "yamato_a_1",     open = 60},              -- 同武器重置连段
+        {cmd = "beowulf_a_1",   open = 60},              -- 跨武器重置
+        {cmd = "force_edge_a_1", open = 60},
+        {cmd = "jump", open = 69},
+    }
+}
+```
+
+**命令按下瞬间的武器锁定**：
+
+| 玩家操作 | 命令生成 | 后续路由 |
+|---|---|---|
+| Yamato 中按 J | `yamato_attack`（按下瞬间锁定武器） | cancel 表匹配 `yamato_a_2` |
+| 切到 Beowulf 后按 J | `beowulf_attack`（按下瞬间锁定武器） | cancel 表匹配 `beowulf_a_1` |
+
+**关键**：命令在**按下瞬间**根据当前武器生成武器特定命令（`yamato_attack`/`beowulf_attack`/`force_edge_attack`）。buffer 携带这个武器意图。后续武器切换不影响已 buffer 的命令。
+
+```
+场景：先按攻击再切武器（操作顺序"错误"）
+帧 0:  weapon=yamato，yamato_a_1 前摇
+帧 5:  玩家按 J → buffer 生成 yamato_attack（按下瞬间锁定 Yamato 意图）
+帧 10: 玩家切武器 → weapon=beowulf
+帧 38: yamato_a_1 后摇窗口
+       buffer = yamato_attack
+       cancel 表匹配：yamato_a_2 (input=yamato_attack) ✅ → dest=yamato_a_2
+→ yamato_a_2 播完 → 回 idle
+→ idle 时 weapon=beowulf
+→ 下次按攻击 → beowulf_attack → beowulf_a_1 ✅
+```
+
+这不是误触发，是**按下瞬间的意图锁定**——玩家按下时武器是 yamato，意图就是 yamato_a_2。切武器发生在按下之后，预输入的攻击仍按原武器执行。这符合 DMC 实际手感。
+
+**特殊技不受武器切换影响**：`rapid_slash`/`upper_slash`/`void_slash` 这类动作名没有武器前缀，cancel 表里直接写 `{cmd = "rapid_slash"}`，任何武器下都能取消到。符合 DMC 设定（这些是独立技能）。
+
+#### 切换的四种方式汇总
+
+| 方式 | 是否进角色状态机 | 角色过渡动画 | UI 动画 | 例子 | 适用场景 |
+|---|---|---|---|---|---|
+| A. 即时切 flag + 过渡动画 | ❌ | ✅（纯视觉，不是技能） | 可选 | idle/跑步切武器播收刀拔刀 | 切换时当前是自由状态 |
+| B. 即时切换+冷却 | ❌ | ❌ | ❌ | 但丁风格切换 | 无动画，立刻生效 |
+| C. 模式标记分流 | ❌（配合 B/D） | — | — | 后续命令按风格/武器分流 | 影响后续命令解析 |
+| D. 即时切 flag + UI 动画 | ❌ | ❌（攻击中不变） | ✅ | Yamato→Beowulf（角色继续攻击） | DMC 手感：flag 即时切，角色不受影响 |
+
+**关键**：所有方式的武器切换都是即时切 flag，不进角色状态机，不查 ctrl。区别只是"切换时角色要不要播过渡动画"和"UI 要不要播切换动画"。方式 A 和 D 可以组合——自由状态切武器播过渡动画（A），攻击中切武器不变（D）。
+
+实际游戏可选：
+- **B + C 组合**：即时切换标志 + 后续命令根据标志分流（但丁风格切换）
+- **D**：即时切 flag + UI 动画 + cancel 表跨武器路由（DMC 维吉尔武器切换）
+- **A + D 组合**：自由状态播过渡动画（A），攻击中即时切不变（D），UI 始终有动画
+
+DMC 手感推荐 A + D 组合：武器即时切 flag（不查 ctrl，不进状态机），自由状态播过渡动画，攻击中不变，UI 层播切换动画，下次按攻击时 cancel 表按当前武器路由。
+
+#### 方式 D 详讲：UI 切换动画（独立于角色状态）
+
+方式 D 的核心是**武器 flag 即时切，UI 动画独立于角色状态机**。UI 动画计时器和角色 currentAction 是两套独立系统——角色在攻击中切武器，攻击继续播，UI 同时播切换动画，两者互不影响。
+
+```lua
+-- UI 层：独立于角色状态
+local weaponUI = {
+    current = "yamato",
+    switch_anim_time = 0,   -- 切换动画计时器（0 = 不播）
+}
+
+function weaponUI:switchTo(newWeapon)
+    self.current = newWeapon
+    self.switch_anim_time = 20  -- 播 20 帧切换动画
+end
+
+-- UI 渲染独立于角色 update
+function weaponUI:draw()
+    -- 根据 switch_anim_time 画滑动/淡入淡出效果
+    -- 不查 currentAction，不查 ctrl
+end
+
+-- 角色层：只管 flag
+function onSwitchInput(player)
+    if Input.justPressed("trigger_r") then
+        player.weapon = nextWeapon(player.weapon)
+        weaponUI:switchTo(player.weapon)  -- 通知 UI 层
+        -- ★ 角色状态完全不变：
+        --   - 不改 currentAction
+        --   - 不查 ctrl
+        --   - 不进切换状态
+        --   - 当前动作继续播
+    end
+end
+```
+
+**两层完全解耦**：
+
+| 层 | 切换时做什么 | 受什么影响 |
+|---|---|---|
+| 角色 flag | 即时改 `player.weapon` | 无（任何时候都能切） |
+| UI 动画 | 播切换动画（图标滑动/淡入淡出） | 只看 `switch_anim_time`，不看角色状态 |
+| 角色动作 | 不变（继续播 currentAction） | 不受武器切换影响 |
+| 后续按攻击 | cancel 表按当前武器路由 dest | 按下瞬间生成武器特定命令 |
+
+**为什么这样设计**：DMC 手感的核心是"切换不打断战斗节奏"。玩家在攻击中切武器，攻击动画继续播完，下次按攻击时自动出切完武器后的第一段。如果切换要进角色状态机（方式 A），会打断当前攻击——那是格斗游戏手感，不是 DMC 手感。
+
+
 
 ### 9.9 （可选高级）输入意图队列：什么时候才需要
 

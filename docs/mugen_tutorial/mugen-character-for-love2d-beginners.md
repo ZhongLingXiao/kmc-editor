@@ -2124,6 +2124,15 @@ end
 
 **什么时候开 ctrl**：回到自由状态（站立 0、行走 20、跳跃 40）时，状态的 `ctrl = true` 字段会自动开。不需要手动开。
 
+**武器切换与 ctrl**：DMC 手感的武器切换**不查 ctrl**——按下切换键的瞬间改 `player.weapon` flag，不进状态机，不改 currentAction。攻击中也能切武器，角色继续播当前动作。下次按攻击时通过 cancel 表按新武器路由 dest。详见 input 文档 §9.8 方式 D 和 Part2 §11.3。
+
+| 输入类型 | 是否查 ctrl | 例子 |
+|---|---|---|
+| 需要自由状态的招（走/跳/攻击起手） | ✅ 查 | `trigger1 = ctrl` |
+| 取消（走 cancel 窗口） | ❌ 不查 | `trigger1 = stateno=200 && movecontact` |
+| 武器切换（DMC 即时切） | ❌ 不查 | 按下瞬间改 flag，不进状态机 |
+| Roman Cancel（要求攻击中） | ❌ 反向查（要求 !ctrl） | `triggerall = !ctrl` |
+
 ### 3.10 变量类
 
 MUGEN 用 `var(N)` 存角色变量（N 是整数索引，0-59）。这是因为 MUGEN 变量是固定大小数组。

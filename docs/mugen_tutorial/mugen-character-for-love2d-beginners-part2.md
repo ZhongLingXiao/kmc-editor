@@ -6267,81 +6267,87 @@ end
 }
 ```
 
-#### 武器切换的 trigger entry
+#### 武器切换与 ctrl 的关系
 
-武器切换不是瞬间切——攻击中按切换键时，**等后摇结束才切**（预输入）。靠命令缓冲（input 文档 §4 的 buffer_time）实现：
+武器切换有两种实现流派，区别在"切换是否查 ctrl"：
 
-```lua
--- commands.lua：切换命令带 buffer_time（预输入窗口）
-local commands = {
-    switch = {
-        steps = { {keys = {{name = "switch"}}} },
-        buffer_time = 10,  -- ★ 匹配后保留10帧
-    },
-}
+| 流派 | 切换时机 | 角色动作 | 适用 |
+|---|---|---|---|
+| 查 ctrl（格斗游戏） | 等后摇结束（ctrl 恢复）才切 | 中断进切换状态 | BBTAG 风格 |
+| 不查 ctrl（DMC） | 按下瞬间改 flag | 不受影响继续播 | DMC 手感 |
 
--- trigger entry：优先级低，只在 ctrl + 非攻击时才切
-{
-    name = "switch_weapon",
-    changeState = 100,    -- 切换状态
-    priority = 5,         -- ★ 很低（不打断任何动作）
-    triggerall = {
-        cmd("switch"),    -- 命令在 buffer 里（10帧内按过都算）
-        T.ctrl,           -- ★ 必须有控制权（攻击后摇结束才触发）
-        T.onGround,
-        function(p) return p.state.moveType ~= "A" end,  -- 非攻击中
-    },
-    triggers = {
-        { function(p) return true end },
-    },
-}
-```
+DMC 手感选"不查 ctrl"——武器切换本身不进状态机，不查 ctrl，按下瞬间改 flag。当前动作继续播，下次按攻击时按新武器路由。详见 input 文档 §9.8 方式 D。
 
-**预输入流程**：
+#### 武器切换的实现：即时切 flag（DMC 风格）
 
-```
-帧0-5:  Yamato 攻击前摇（ctrl=false）→ 按切换键 → 命令进 buffer
-帧6-8:  攻击判定（ctrl=false）→ 命令在 buffer 里
-帧9-15: 攻击后摇（ctrl=false）→ 命令在 buffer 里
-帧16:   攻击结束 → ctrl=true → trigger entry 检查：
-        cmd("switch")=true（buffer 还在）+ ctrl=true + 非攻击 → 触发！
-        → ChangeState(100) 切换武器
-
-玩家在帧0按了切换键，但到帧16才真正切换 → 预输入
-如果 buffer_time < 16（比如 buffer_time=10）→ 命令过期 → 不切（按太早了）
-```
-
-**武器切换 vs 取消的区别**：
-
-| | 取消 | 武器切换 |
-|---|---|---|
-| 时机 | 后摇中立刻打断 | 后摇结束才切 |
-| 效果 | 瞬间切到新技能 | 等当前动作完成再切 |
-| 优先级 | 高（50-100） | 低（5） |
-| 机制 | trigger entry 即时检查 | buffer_time 预输入 + ctrl 恢复后才触发 |
-
-#### 武器切换状态
+DMC 风格的武器切换**不查 ctrl，不进状态机，不清 buffer**。按下切换键的瞬间改 `player.weapon`，角色继续当前动作：
 
 ```lua
--- states/100.lua：武器切换状态（短暂不可取消）
-function State:onEnter(player)
-    local weapons = {"sword", "fist", "gun"}
-    local idx = 1
-    for i, w in ipairs(weapons) do
-        if w == player.weapon then idx = i break end
+-- 切换不查 ctrl，按下瞬间改 flag
+function onSwitchInput(player)
+    if Input.justPressed("trigger_r") then
+        player.weapon = nextWeapon(player.weapon)
+        -- ★ 不进状态机，不改 currentAction，不查 ctrl
+        -- 当前动作继续播，下次按攻击时 cancel 表按新武器路由
+        -- 通知 UI 层播切换动画（独立于角色状态）
+        weaponUI:switchTo(player.weapon)
     end
-    idx = idx % #weapons + 1  -- 下一个武器
-    player:switchWeapon(weapons[idx])
 end
 ```
 
-#### 取消等级总表（含武器切换）
+**为什么不清 buffer**：命令在按下瞬间根据当前武器生成武器特定命令（`yamato_attack`/`beowulf_attack`）。buffer 携带这个武器意图。后续武器切换不影响已 buffer 的命令——玩家按下时武器是 yamato，意图就是 yamato_a_2，切武器发生在按下之后，预输入的攻击仍按原武器执行。详见 input 文档 §9.8 "普攻 cancel 路径的跨武器路由"。
+
+**武器切换 vs 取消的区别**：
+
+| | 取消 | 武器切换（DMC 即时切） |
+|---|---|---|
+| 时机 | 后摇中立刻打断 | 按下瞬间改 flag（不打断当前动作） |
+| 效果 | 瞬间切到新技能 | 角色继续当前动作，下次按攻击才路由到新武器 |
+| 优先级 | 高（50-100） | 不参与优先级（不进状态机） |
+| 机制 | trigger entry 检查 cancel 窗口 | 即时改 flag + UI 动画 |
+| 是否查 ctrl | 不查（走 cancel 窗口） | 不查（即时切） |
+
+#### （可选）过渡动画：自由状态切武器时
+
+如果当前是自由状态（idle/跑步），切武器时可以播一个短暂过渡动画（比如收刀拔刀 3-5 帧）让视觉更平滑。**这个过渡动画不是技能**——它没有 startup/active/recovery，没有 hitbox，没有 cancel_windows，不占用 currentAction，任何时候都能被攻击打断。
+
+```lua
+-- 切换是即时的 flag 改（方式 D 核心）
+-- 过渡动画是可选的视觉补充，不是技能状态
+function onSwitchInput(player)
+    if Input.justPressed("trigger_r") then
+        player.weapon = nextWeapon(player.weapon)
+        weaponUI:switchTo(player.weapon)  -- UI 动画（独立层）
+
+        -- ★ 可选：如果当前是自由状态，播过渡动画
+        -- 过渡动画不是技能：没有 cancel_windows，能被攻击打断
+        if player:isFreeState() then  -- idle/跑步/跳跃等自由状态
+            player:playTransitionAnim("weapon_switch", 3)  -- 3 帧过渡动画
+        end
+        -- ★ 如果当前是攻击中，完全不变，继续播攻击
+    end
+end
+```
+
+**过渡动画 vs 技能状态**：
+
+| | 过渡动画 | 技能状态（攻击/必杀） |
+|---|---|---|
+| 有 startup/active/recovery | ❌ | ✅ |
+| 有 hitbox | ❌ | ✅ |
+| 有 cancel_windows | ❌ | ✅ |
+| 占用 currentAction | ❌（纯视觉层） | ✅ |
+| 可被攻击打断 | ✅（任何时候） | 看取消窗口 |
+
+2D 游戏可以不要过渡动画（直接切），也可以加几帧让视觉更舒服。但不管有没有过渡动画，逻辑上都是即时切 flag。
+
+#### 取消等级总表
 
 ```
-DT取消(100) > 踩怪JC(95) > 取消窗口(50-80) > 二段跳(50) > ... > 武器切换(5)
+DT取消(100) > 踩怪JC(95) > 取消窗口(50-80) > 二段跳(50) > ...
 ```
 
-武器切换优先级最低——不打断任何动作，只靠 buffer_time 预输入 + ctrl 恢复后自然触发。
+武器切换不参与取消等级——它不进状态机，不查 ctrl，按下瞬间改 flag。下次按攻击时通过 cancel 表跨武器路由（见 input 文档 §9.8）。
 
 #### 风格切换（但丁）
 
