@@ -154,7 +154,6 @@ local Command = {}
 function Command.new(def)
     local cmd = {
         name = def.name,
-        priority = def.priority or 0,   -- 显式优先级（高者先查）；文档 §9.2 方案1
         time = def.time or 15,
         buffer_time = def.buffer_time or 1,
         steps = def.steps,
@@ -316,14 +315,13 @@ end
 -- ---------- Game state ----------
 -- DMC Vergil 风格技能（right = forward，面向右；本测试无 SOCD 层）
 local buf = Buffer.new()
--- 触发优先级靠显式 priority 字段（文档 §9.2 方案1），不再依赖列表顺序。
--- priority 高的先查；同帧多命令匹配时（子集冲突）priority 高的取胜者。
--- 大体规则：输入越复杂（步多、键多）priority 越高，避免被单键命令抢先。
+-- priority 已移到 action 的 cancel entry 上（见下文 actions）。
+-- cmd 本身只描述输入模式，不再带优先级。
 local cmds = {
     -- Void Slash: 后→前+攻击 (A, D, J) —— 斩裂时空（3步，最具体）
     Command.new({
         name = "void_slash",
-        priority = 5, time = 60, buffer_time = 20,   -- 特殊技短 buffer：意图即执行
+        time = 60, buffer_time = 20,   -- 特殊技短 buffer：意图即执行
         steps = {
             {keys = {{name = "left"}}},
             {keys = {{name = "right"}}},
@@ -333,7 +331,7 @@ local cmds = {
     -- Upper Slash: 后+攻击 (hold A + J) —— launcher 上挑（2键）
     Command.new({
         name = "upper_slash",
-        priority = 4, time = 20, buffer_time = 20,
+        time = 20, buffer_time = 20,
         steps = {
             {keys = {{name = "left", hold = true}, {name = "attack"}}},
         },
@@ -341,7 +339,7 @@ local cmds = {
     -- Rapid Slash: 前+攻击 (hold D + J) —— 突进斩（2键）
     Command.new({
         name = "rapid_slash",
-        priority = 4, time = 20, buffer_time = 20,
+        time = 20, buffer_time = 20,
         steps = {
             {keys = {{name = "right", hold = true}, {name = "attack"}}},
         },
@@ -350,7 +348,7 @@ local cmds = {
     -- 长 buffer：预输入/连击衔接容忍，跨招 buffer 撑到后摇窗口
     Command.new({
         name = "attack",
-        priority = 1, time = 10, buffer_time = 20,
+        time = 10, buffer_time = 20,
         steps = {
             {keys = {{name = "attack"}}},
         },
@@ -359,22 +357,15 @@ local cmds = {
     -- 长 buffer：空中预输入落地接
     Command.new({
         name = "jump",
-        priority = 1, time = 10, buffer_time = 10,
+        time = 10, buffer_time = 10,
         steps = {
             {keys = {{name = "jump"}}},
         },
     }),
 }
--- 触发用：按 priority 降序排好的 cmds 副本（不破坏原 cmds 顺序）
-local cmdsByPriority
-local function getCmdsByPriority()
-    if not cmdsByPriority then
-        cmdsByPriority = {}
-        for _, c in ipairs(cmds) do cmdsByPriority[#cmdsByPriority+1] = c end
-        table.sort(cmdsByPriority, function(a, b) return a.priority > b.priority end)
-    end
-    return cmdsByPriority
-end
+-- 命令名 -> cmd 对象（触发检查时按 inputForAction(entry.cmd) 查）
+local cmdsByName = {}
+for _, c in ipairs(cmds) do cmdsByName[c.name] = c end
 
 -- 所有可播放动作统一放在 actions：cancel 窗口的 cmd 直接写目标动作名。
 --
@@ -391,12 +382,12 @@ local actions = {
         input = "attack",
         startup = 25, active = 12, recovery = 45,
         cancel = {
-            {cmd = "rapid_slash", open = 13},
-            {cmd = "upper_slash", open = 13},
-            {cmd = "void_slash", open = 13},
-            {cmd = "yamato_a_2", open = 38, close = 59},
-            {cmd = "yamato_a_1", open = 60},
-            {cmd = "jump", open = 69},
+            {cmd = "void_slash", open = 13, priority = 5},
+            {cmd = "upper_slash", open = 13, priority = 4},
+            {cmd = "rapid_slash", open = 13, priority = 4},
+            {cmd = "yamato_a_2", open = 38, close = 59, priority = 1},
+            {cmd = "yamato_a_1", open = 60, priority = 1},
+            {cmd = "jump", open = 69, priority = 1},
         },
     },
     yamato_a_2 = {
@@ -404,13 +395,13 @@ local actions = {
         input = "attack",
         startup = 25, active = 12, recovery = 45,
         cancel = {
-            {cmd = "rapid_slash", open = 13},
-            {cmd = "upper_slash", open = 13},
-            {cmd = "void_slash", open = 13},
-            {cmd = "yamato_a_3", open = 38, close = 50},  -- 早段 → Combo A（快按）
-            {cmd = "yamato_b_3", open = 51, close = 70},  -- 中段 → Combo B（停顿变招）
-            {cmd = "yamato_a_1", open = 71},              -- 晚段 → 重开 A1（太晚错过变招）
-            {cmd = "jump", open = 69},
+            {cmd = "void_slash", open = 13, priority = 5},
+            {cmd = "upper_slash", open = 13, priority = 4},
+            {cmd = "rapid_slash", open = 13, priority = 4},
+            {cmd = "yamato_a_3", open = 38, close = 50, priority = 1},  -- 早段 → Combo A（快按）
+            {cmd = "yamato_b_3", open = 51, close = 70, priority = 1},  -- 中段 → Combo B（停顿变招）
+            {cmd = "yamato_a_1", open = 71, priority = 1},              -- 晚段 → 重开 A1（太晚错过变招）
+            {cmd = "jump", open = 69, priority = 1},
         },
     },
     yamato_a_3 = {
@@ -418,12 +409,12 @@ local actions = {
         input = "attack",
         startup = 25, active = 12, recovery = 45,
         cancel = {
-            {cmd = "rapid_slash", open = 13},
-            {cmd = "upper_slash", open = 13},
-            {cmd = "void_slash", open = 13},
-            {cmd = "yamato_a_4", open = 38, close = 59},
-            {cmd = "yamato_a_1", open = 60},
-            {cmd = "jump", open = 69},
+            {cmd = "void_slash", open = 13, priority = 5},
+            {cmd = "upper_slash", open = 13, priority = 4},
+            {cmd = "rapid_slash", open = 13, priority = 4},
+            {cmd = "yamato_a_4", open = 38, close = 59, priority = 1},
+            {cmd = "yamato_a_1", open = 60, priority = 1},
+            {cmd = "jump", open = 69, priority = 1},
         },
     },
     yamato_a_4 = {  -- Combo A 终结
@@ -431,11 +422,11 @@ local actions = {
         input = "attack",
         startup = 30, active = 15, recovery = 60,
         cancel = {
-            {cmd = "rapid_slash", open = 15},
-            {cmd = "upper_slash", open = 15},
-            {cmd = "void_slash", open = 15},
-            {cmd = "yamato_a_1", open = 46},
-            {cmd = "jump", open = 88},
+            {cmd = "void_slash", open = 15, priority = 5},
+            {cmd = "upper_slash", open = 15, priority = 4},
+            {cmd = "rapid_slash", open = 15, priority = 4},
+            {cmd = "yamato_a_1", open = 46, priority = 1},
+            {cmd = "jump", open = 88, priority = 1},
         },
     },
     yamato_b_3 = {  -- Combo B 挑空（停顿变招）
@@ -443,11 +434,11 @@ local actions = {
         input = "attack",
         startup = 30, active = 15, recovery = 60,
         cancel = {
-            {cmd = "rapid_slash", open = 15},
-            {cmd = "upper_slash", open = 15},
-            {cmd = "void_slash", open = 15},
-            {cmd = "yamato_a_1", open = 46},
-            {cmd = "jump", open = 88},
+            {cmd = "void_slash", open = 15, priority = 5},
+            {cmd = "upper_slash", open = 15, priority = 4},
+            {cmd = "rapid_slash", open = 15, priority = 4},
+            {cmd = "yamato_a_1", open = 46, priority = 1},
+            {cmd = "jump", open = 88, priority = 1},
         },
     },
     -- 特殊技动作：承诺招，后摇可被取消（special-cancel 后摇靠前；attack/jump 按承诺度）
@@ -455,44 +446,44 @@ local actions = {
         name = "rapid_slash",
         startup = 18, active = 10, recovery = 45,
         cancel = {
-            {cmd = "rapid_slash", open = 33},
-            {cmd = "upper_slash", open = 33},
-            {cmd = "void_slash", open = 33},
-            {cmd = "yamato_a_1", open = 52},
-            {cmd = "jump", open = 60},
+            {cmd = "void_slash", open = 33, priority = 5},
+            {cmd = "upper_slash", open = 33, priority = 4},
+            {cmd = "rapid_slash", open = 33, priority = 4},
+            {cmd = "yamato_a_1", open = 52, priority = 1},
+            {cmd = "jump", open = 60, priority = 1},
         },
     },
     void_slash = {
         name = "void_slash",
         startup = 14, active = 8, recovery = 36,
         cancel = {
-            {cmd = "rapid_slash", open = 50},
-            {cmd = "upper_slash", open = 50},
-            {cmd = "void_slash", open = 50},
-            {cmd = "yamato_a_1", open = 50},
-            {cmd = "jump", open = 52},
+            {cmd = "void_slash", open = 50, priority = 5},
+            {cmd = "upper_slash", open = 50, priority = 4},
+            {cmd = "rapid_slash", open = 50, priority = 4},
+            {cmd = "yamato_a_1", open = 50, priority = 1},
+            {cmd = "jump", open = 52, priority = 1},
         },
     },
     upper_slash = {
         name = "upper_slash",
         startup = 12, active = 8, recovery = 30,
         cancel = {
-            {cmd = "rapid_slash", open = 32},
-            {cmd = "upper_slash", open = 45},
-            {cmd = "void_slash", open = 22},
-            {cmd = "yamato_a_1", open = 45},
-            {cmd = "jump", open = 45},
+            {cmd = "void_slash", open = 22, priority = 5},
+            {cmd = "upper_slash", open = 45, priority = 4},
+            {cmd = "rapid_slash", open = 32, priority = 4},
+            {cmd = "yamato_a_1", open = 45, priority = 1},
+            {cmd = "jump", open = 45, priority = 1},
         },
     },
     jump = {
         name = "jump",
         startup = 8, active = 4, recovery = 30,
         cancel = {
-            {cmd = "rapid_slash", open = 1},
-            {cmd = "upper_slash", open = 1},
-            {cmd = "void_slash", open = 1},
-            {cmd = "yamato_a_1", open = 1},
-            {cmd = "jump", open = 42},
+            {cmd = "void_slash", open = 1, priority = 5},
+            {cmd = "upper_slash", open = 1, priority = 4},
+            {cmd = "rapid_slash", open = 1, priority = 4},
+            {cmd = "yamato_a_1", open = 1, priority = 1},
+            {cmd = "jump", open = 42, priority = 1},
         },
     },
 }
@@ -513,7 +504,7 @@ local actions = {
 -- 将来新增攻击键分支时，只在动作定义中加 input = "attack"：
 --   yamato_c_4 = {name = "yamato_c_4", input = "attack", ...}
 -- 此后 {cmd = "yamato_c_4", ...} 会自动被当作攻击键取消，
--- 不需要再修改 canFire、动作切换或 UI 的判断。
+-- 不需要再修改触发逻辑、动作切换或 UI 的判断。
 --
 -- input 缺省时，动作名本身就是命令名，例如：
 --   inputForAction("jump")         == "jump"
@@ -523,9 +514,10 @@ local function inputForAction(name)
     return def and (def.input or name) or name
 end
 
--- idle 没有动作取消表；这里只有“输入命令 → 起手动作”的映射。
+-- idle 取消表：和 action 的 cancel entry 同构，{cmd=目标动作, priority=...}
+-- cmd 写目标动作名；inputForAction 决定按什么输入键。
 local idleCancel = {
-    attack = "yamato_a_1",
+    {cmd = "yamato_a_1", priority = 1},
 }
 
 local currentAction = nil       -- nil == idle
@@ -672,67 +664,58 @@ function love.update(dt)
         end
     end
 
-    -- ===== 第4步：触发判定 + 消费（按优先级取胜者）=====
-    -- 取消规则：查当前动作的 cancel 窗口表。open ≤ 当前绝对帧 ≤ close(默认total) 则可取消。
-    -- idle 时全部可触发。
-    local function canFire(cmdName)
-        if not currentAction then return true end
-        local af = actionAbsFrame(currentAction)
-        for _, w in ipairs(currentAction.cancel or {}) do
-            if inputForAction(w.cmd) == cmdName
-               and af >= w.open and af <= (w.close or currentAction.total) then
-                return true
+    -- ===== 第4步：触发判定 + 消费（按 cancel entry 的 priority 取胜者）=====
+    -- 收集当前可触发的 cancel entries：
+    --   idle → idleCancel（全部视为窗口打开）
+    --   action → currentAction.cancel 里 af ∈ [open, close] 的 entry
+    -- 然后按 entry.priority 降序稳定排序，第一个 cur_buffer_time>0 的命令取胜者。
+    local af = actionAbsFrame(currentAction)
+    local entries = {}  -- {w=entry, idx=声明序号}
+    if currentAction then
+        for i, w in ipairs(currentAction.cancel or {}) do
+            if af >= w.open and af <= (w.close or currentAction.total) then
+                entries[#entries+1] = {w = w, idx = i}
             end
         end
-        return false
+    else
+        for i, w in ipairs(idleCancel) do
+            entries[#entries+1] = {w = w, idx = i}
+        end
     end
-    -- 按 priority 降序检查命令：第一个 active + canFire 的取胜者，break（文档 §9.2 方案1）
-    -- MUGEN 纯净模型：不清子集 curbuftime（文档 §4.5）。特殊技短 buffer_time(5)
-    -- 让子集失败者自动过期，不需要清；attack/jump 长 buffer_time 用于跨招预输入，
+    table.sort(entries, function(a, b)
+        local pa, pb = a.w.priority or 0, b.w.priority or 0
+        if pa ~= pb then return pa > pb end
+        return a.idx < b.idx  -- 同 priority 保持声明顺序（稳定排序）
+    end)
+    -- MUGEN 纯净模型：不清子集 curbuftime（文档 §4.5）。特殊技短 buffer_time
+    -- 让子集失败者自动过期；attack/jump 长 buffer_time 用于跨招预输入，
     -- 它们和特殊技触发键不重叠（一个按 L 一个按 J），不会同帧 cascade。
-    for _, cmd in ipairs(getCmdsByPriority()) do
-        if Command.isActive(cmd) then
-            if canFire(cmd.name) then
-                -- 胜者（被触发的命令）
-                cmd._fired = true
-                -- 检测胜者是否本帧匹配（仅用于 UI 显示 _peakBuf）
-                local wMatched = (cmd.cur_buffer_time > snap[cmd].buf)
-                cmd._peakBuf = cmd.cur_buffer_time
-                cmd.cur_buffer_time = 0  -- 消费胜者
-                -- 清理同帧匹配的子集命令（避免 cascade）
-                for _, sub in ipairs(cmds) do
-                    if sub ~= cmd
-                       and sub.cur_buffer_time > 0              -- buffer 还活着就清（含预输入）
-                       and Command.isSubsetOf(sub, cmd)          -- 是胜者子集
-                    then
-                        sub.cur_buffer_time = 0
-                        addLog("cleared subset " .. sub.name, {0.8, 0.5, 0.3})
-                    end
-                end
-                local prev = currentAction and currentAction.name or "idle"
-                -- ===== 第5步：执行技能（启动新动作）=====
-                local dest = idleCancel[cmd.name] or cmd.name
-                if currentAction then
-                    local af = actionAbsFrame(currentAction)
-                    for _, w in ipairs(currentAction.cancel or {}) do
-                        if inputForAction(w.cmd) == cmd.name
-                           and af >= w.open and af <= (w.close or currentAction.total) then
-                            dest = w.cmd
-                            break
-                        end
-                    end
-                end
-                currentAction = Action.new(actions[dest])
-                Action.start(currentAction)
-                addLog("TRIGGER " .. cmd.name .. " → " .. dest .. "  (from " .. prev .. ")", {0.3, 1, 0.3})
-                break  -- 优先级：每帧只触发一个技能
-            else
-                -- 命令已缓冲但取消窗口关闭（还在 startup/active），
-                -- 继续等待后摇；若 buffer_time 归零则预输入丢失
-                if cmd.cur_buffer_time == 1 then
-                    addLog("PRE-INPUT LOST " .. cmd.name .. " (buffer expired, cancel closed)", {1, 0.3, 0.3})
+    for _, e in ipairs(entries) do
+        local w = e.w
+        local cmdName = inputForAction(w.cmd)
+        local cmd = cmdsByName[cmdName]
+        if cmd and Command.isActive(cmd) then
+            -- 胜者（被触发的命令）
+            cmd._fired = true
+            cmd._peakBuf = cmd.cur_buffer_time
+            cmd.cur_buffer_time = 0  -- 消费胜者
+            -- 清理同帧匹配的子集命令（避免 cascade）
+            for _, sub in ipairs(cmds) do
+                if sub ~= cmd
+                   and sub.cur_buffer_time > 0              -- buffer 还活着就清（含预输入）
+                   and Command.isSubsetOf(sub, cmd)          -- 是胜者子集
+                then
+                    sub.cur_buffer_time = 0
+                    addLog("cleared subset " .. sub.name, {0.8, 0.5, 0.3})
                 end
             end
+            local prev = currentAction and currentAction.name or "idle"
+            -- ===== 第5步：执行技能（启动新动作）=====
+            -- dest 直接 = entry.cmd（entry 已经过窗口过滤，无需再反查 cancel 表）
+            currentAction = Action.new(actions[w.cmd])
+            Action.start(currentAction)
+            addLog("TRIGGER " .. cmd.name .. " → " .. w.cmd .. "  (from " .. prev .. ")", {0.3, 1, 0.3})
+            break  -- 每帧只触发一个技能
         end
     end
 
@@ -824,7 +807,6 @@ end
 -- 迷你条暗底=整条动作，亮色=可取消区段(open..close)，白竖线=当前帧。
 -- ● NOW = 当前帧落在窗口里（此刻能取消）。返回占用高度。
 local function drawCancelTracks(x, y, w, act)
-    local order = {"rapid_slash", "upper_slash", "void_slash", "attack", "jump"}
     local colFor = {rapid_slash = CYAN, upper_slash = CYAN, void_slash = CYAN, attack = GREEN, jump = YELLOW}
     local absF = actionAbsFrame(act)
     local startY = y
@@ -832,6 +814,24 @@ local function drawCancelTracks(x, y, w, act)
     local function shortName(name)
         return name:gsub("yamato_", "")
     end
+    -- 按 max priority 降序收集 cname（同 priority 保持声明顺序）
+    local byCname = {}
+    for i, win in ipairs(act.cancel or {}) do
+        local cn = inputForAction(win.cmd)
+        local e = byCname[cn]
+        if not e then
+            e = {wins = {}, prio = -1, idx = i}
+            byCname[cn] = e
+        end
+        e.wins[#e.wins+1] = win
+        e.prio = math.max(e.prio, win.priority or 0)
+    end
+    local order = {}
+    for cn, e in pairs(byCname) do order[#order+1] = {name = cn, wins = e.wins, prio = e.prio, idx = e.idx} end
+    table.sort(order, function(a, b)
+        if a.prio ~= b.prio then return a.prio > b.prio end
+        return a.idx < b.idx
+    end)
     -- 列布局
     local nameW = 100
     local barX, barW = x + nameW, 300
@@ -848,13 +848,9 @@ local function drawCancelTracks(x, y, w, act)
     love.graphics.print("range", rangeX, y)
     love.graphics.print("now", statX, y)
     y = y + rowH
-    for _, cname in ipairs(order) do
-        local wins = {}
-        for _, win in ipairs(act.cancel or {}) do
-            if inputForAction(win.cmd) == cname then
-                wins[#wins+1] = win
-            end
-        end
+    for _, item in ipairs(order) do
+        local cname = item.name
+        local wins = item.wins
         if #wins > 0 then
             -- 名字
             setColor(colFor[cname])
@@ -963,10 +959,10 @@ function love.draw()
     local yL = y         -- 左列 y 游标
     local yR = y         -- 右列 y 游标
 
-    -- ===== COMMANDS（左列；priority desc）— 放上面，位置稳定不跳 =====
-    setColor(CYAN); love.graphics.print("-- COMMANDS (priority desc) --", LX, yL); yL = yL + 18
-    -- 按 priority 降序展示（和触发检查顺序一致）
-    for _, cmd in ipairs(getCmdsByPriority()) do
+    -- ===== COMMANDS（左列）— 放上面，位置稳定不跳 =====
+    setColor(CYAN); love.graphics.print("-- COMMANDS --", LX, yL); yL = yL + 18
+    -- 按声明顺序展示（priority 已移到 cancel entry，不在 cmd 上）
+    for _, cmd in ipairs(cmds) do
         local active = Command.isActive(cmd)
         local status, col, barVal, barCol
         if active then
@@ -997,7 +993,7 @@ function love.draw()
             barVal = nil
         end
         setColor(col)
-        love.graphics.print(pad("p" .. cmd.priority .. " [" .. cmd.name .. "]", 18) .. pad(status, 48) ..
+        love.graphics.print(pad("[" .. cmd.name .. "]", 18) .. pad(status, 48) ..
               "  cur_time=" .. cmd.cur_time .. "/" .. cmd.time, LX, yL); yL = yL + 18
 
         -- buffer_time bar (始终占位，避免布局跳动；idle 时空槽，有 buffer 时彩色填充)
