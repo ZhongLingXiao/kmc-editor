@@ -6341,6 +6341,111 @@ end
 
 2D 游戏可以不要过渡动画（直接切），也可以加几帧让视觉更舒服。但不管有没有过渡动画，逻辑上都是即时切 flag。
 
+#### locomotion 切武器：切 state + 相位同步
+
+上面的"即时切 flag"讲的是攻击中切武器——角色不变，继续播。但自由状态（run/idle/walk）切武器时，角色手里拿的武器变了，需要切到对应武器版动画。
+
+**每武器一套 locomotion state**：
+
+```
+locomotion states（每武器一个 state，动画不同）：
+    0/100/200   = idle_yamato / idle_beowulf / idle_force_edge
+    20/120/220  = walk_yamato / walk_beowulf / walk_force_edge
+    21/121/221  = run_yamato / run_beowulf / run_force_edge
+    40/140/240  = jump_yamato / jump_beowulf / jump_force_edge
+
+攻击 states（本来就按武器分）：
+    200 = yamato_a_1 / 250 = beowulf_a_1 / 300 = force_edge_a_1
+```
+
+**切武器入口统一：只改 flag + 发事件，不主动切 state**：
+
+```lua
+function onSwitchInput(player)
+    if Input.justPressed("trigger_r") then
+        player.weapon = nextWeapon(player.weapon)
+        EventBus:emit("weapon_switch", { player = player, ... })
+        -- ★ 不在这里切 state，让各 state 自己 onUpdate 检测 weapon 变化
+    end
+end
+```
+
+**各 state 自己决定如何响应武器变化**（状态自治模式）：
+
+```lua
+-- states/21_yamato_run.lua（locomotion 状态：检测 weapon 变化，切到对应武器 state）
+function State:onUpdate(player, dt)
+    -- 跑步逻辑...
+
+    -- ★ 检测武器变化：如果 weapon 变了，切到对应武器的 run state + 相位同步
+    if player.weapon ~= "yamato" then
+        local stateMap = {
+            beowulf    = 121,    -- beowulf run
+            force_edge = 221,    -- force_edge run
+        }
+        local newStateNo = stateMap[player.weapon]
+        if newStateNo then
+            player:setStateKeepPhase(newStateNo)  -- ★ 相位同步切 state（Part1 §5.6）
+            return
+        end
+    end
+end
+
+-- states/200_yamato_a_1.lua（攻击状态：不检测 weapon 变化，继续播）
+function State:onUpdate(player, dt)
+    -- 攻击逻辑...
+    -- ★ 不检测 weapon 变化，继续播 yamato_a_1
+    -- 攻击结束后回 idle，自然切到新武器 idle
+    if player.anim_finished then
+        player:setState(getIdleStateNo(player.weapon))
+    end
+end
+```
+
+**为什么用状态自治模式（入口统一 + 各 state 自检）而不是在切武器函数里集中判断**：
+
+| | 集中判断（在 onSwitchInput 里） | 状态自治（各 state 自检） |
+|---|---|---|
+| 切武器函数 | 要判断当前状态类型（自由/攻击/被击） | 只改 flag，不管状态 |
+| 加新状态类型 | 要回来改切武器函数 | 新 state 自己决定要不要响应 |
+| 统一性 | 入口不统一（要 if-else 分状态） | 入口统一（只改 flag） |
+
+**对应到 MUGEN**：MUGEN 的 trigger entry 就是状态自治模式——事件（command 匹配）发生后，每个 trigger entry 自己判断要不要响应（`trigger1 = stateno=21 && ctrl`）。切武器在 MUGEN 里靠 var(53) 变化 + 各 state 的 trigger 自检。
+
+#### MUGEN 的写法对比
+
+MUGEN 的 locomotion state 检测武器变化（对应我们的状态自治）：
+
+```ini
+; ===== Yamato 跑步 state（21）=====
+[Statedef 21]
+anim = 21              ; yamato 跑步动画
+ctrl = 1
+
+; ★ 检测武器变化：var(53) 变了就切到对应武器 run state
+[State 21, 武器切到 Beowulf 时切到 Beowulf run]
+type = ChangeState
+trigger1 = var(53) = 1           ; 武器变成 beowulf
+value = 121                      ; 切到 Beowulf run state
+
+[State 21, 武器切到 Force Edge 时切到对应 run]
+type = ChangeState
+trigger1 = var(53) = 2
+value = 221
+
+; ===== Beowulf 跑步 state（121）=====
+[Statedef 121]
+anim = 121             ; beowulf 跑步动画
+ctrl = 1
+
+[State 121, 武器切到 Yamato 时切到 Yamato run]
+type = ChangeState
+trigger1 = var(53) = 0
+value = 21
+```
+
+**MUGEN 做不到相位同步**：ChangeState 会重置 state_time 和 anim 时间，切到 121 后从第1帧重新播，左右脚会跳。Love2D 用 `setStateKeepPhase` 能保留 `anim_frame`，实现相位同步（Part1 §5.6 详讲）。
+
 #### 取消等级总表
 
 ```

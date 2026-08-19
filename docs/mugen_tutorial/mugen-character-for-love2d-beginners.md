@@ -3404,6 +3404,81 @@ function Player:setState(no)
 end
 ```
 
+#### setState 的完整流程
+
+setState 不是简单"切状态号"，而是有完整流程：
+
+```lua
+function Player:setState(no)
+    -- 1. 退出旧状态（onExit）
+    if self.state.onExit then self.state:onExit(self) end
+
+    -- 2. 记录前一个状态号（用于取消链限制，如 JC 不能连 JC）
+    self.prevStateNo = self.stateNo
+
+    -- 3. 切到新状态
+    self.stateNo = no
+    self.state = states[no]
+    self.state_time = 0           -- ★ state_time 重置
+
+    -- 4. 进入新状态（onEnter）
+    if self.state.onEnter then self.state:onEnter(self) end
+
+    -- 5. 切动画（如果新 state 有 anim 字段）
+    if self.state.anim then
+        self:changeAnim(self.state.anim)   -- ★ changeAnim 会重置 anim_frame=1, anim_tick=0
+    end
+
+    -- 6. ctrl 处理（如果 state 定义了 ctrl 字段）
+    if self.state.ctrl ~= nil then
+        self.ctrl = self.state.ctrl
+    end
+end
+```
+
+**setState 做了什么**（汇总）：
+
+| 步骤 | 做什么 | 字段影响 |
+|---|---|---|
+| onExit | 退出旧状态回调 | 清理旧状态数据 |
+| prevStateNo | 记录前状态 | `prevStateNo = 旧 stateNo` |
+| 切状态 | 换 state 引用 | `stateNo`, `state` 更新 |
+| state_time 重置 | 状态时间归零 | `state_time = 0` |
+| onEnter | 进入新状态回调 | 初始化新状态数据 |
+| changeAnim | 切动画 | `anim`, `anim_frame=1`, `anim_tick=0`, `anim_finished=false` |
+| ctrl | 控制权设置 | `ctrl = state.ctrl`（可选） |
+
+#### setState 后的一帧执行顺序
+
+setState 通常在 Player:update 的 -1 层或 onUpdate 里调用。setState 之后的本帧剩余流程：
+
+```
+Player:update(dt, buf):
+  1. updateControl (-1)        ← onFrame + cancel_windows（可能在这里 setState）
+  2. updateState()             ← 当前状态逻辑
+       a. state:onUpdate(dt)    ← 状态逻辑（也可能在这里 setState）
+       b. updateAnim()          ← ★ 动画推进（在状态逻辑之后）
+       c. 检查 anim_finished    ← 非循环动画播完 → setState(0)
+  3. state_time++              ← 推进状态时间
+```
+
+**关键顺序**：先状态逻辑（可能 setState），后 updateAnim。这样 setState 切了新动画后，updateAnim 从新动画第1帧开始推进（或用相位同步保留旧帧）。
+
+```lua
+function Player:update(dt, buf)
+    -- 1. -1 层（onFrame + cancel_windows）
+    self:updateControl(buf)
+
+    -- 2. 当前状态逻辑
+    self.state_time = self.state_time + 1
+    if self.state.onUpdate then self.state:onUpdate(self, dt) end
+    -- ★ onUpdate 里可能 setState（如攻击结束回 idle）
+
+    -- 3. 动画推进（setState 后才推进）
+    self:updateAnim()      -- ★ 在状态逻辑之后，避免本帧切了 state 又推进
+end
+```
+
 ### 5.5 动画推进：updateAnim
 
 每帧推进动画播放：
@@ -3506,6 +3581,166 @@ end
 ```
 
 实际用 `anim_finished` 字段就够了，`animTime` 只在需要精确剩余时间时用（比如"还剩3帧时触发"）。
+
+#### 相位同步：setStateKeepPhase（Love2D 独有优势）
+
+#### 问题：setState 会重置 anim_frame
+
+标准的 `setState` → `changeAnim` 会把 `anim_frame` 重置为 1，新动画从头播。大多数场景这是对的（攻击结束回 idle、攻击取消切新攻击）。
+
+但有一个场景不对：**locomotion 切武器**。跑步中切武器，应该切到新武器的 run 动画并**保留当前帧位置**（让脚步对齐），而不是从第1帧重新播（会跳帧）。
+
+```
+场景：跑步切武器
+帧 N:   run_yamato anim_frame=5（左脚刚落地）
+        玩家按 trigger_r 切到 beowulf
+
+标准 setState：           相位同步 setStateKeepPhase：
+  → changeAnim           → setState（重置 anim_frame=1）
+  → anim_frame=1           → 手动恢复 anim_frame=5
+  → 从第1帧重新播          → 从第5帧继续播
+  → ★ 左右脚跳了！         → ★ 左右脚对齐！
+```
+
+#### 解决：setStateKeepPhase
+
+Love2D 的 `anim_frame` 是普通字段，**可读可写**。setState 后手动恢复 `anim_frame`，就能实现相位同步：
+
+```lua
+--- 切状态 + 保留动画相位（循环动画用，如 run/idle 切武器）
+---@param no integer 新状态号
+function Player:setStateKeepPhase(no)
+    local oldFrame = self.anim_frame
+    local oldTick = self.anim_tick
+    local oldTotal = self.anim and #self.anim.elements or 1
+
+    self:setState(no)             -- 标准 setState（重置 anim_frame=1）
+
+    -- ★ 手动恢复相位（Love2D 独有优势，MUGEN 做不到）
+    local newTotal = self.anim and #self.anim.elements or 1
+    if oldTotal == newTotal then
+        -- 帧数一致：直接传帧号（最精确，左右脚完全对齐）
+        self.anim_frame = oldFrame
+        self.anim_tick = oldTick
+    else
+        -- 帧数不同：按比例同步（近似对齐）
+        local ratio = (oldFrame - 1) / oldTotal
+        self.anim_frame = math.floor(ratio * newTotal) + 1
+        self.anim_tick = 0
+    end
+end
+```
+
+**帧数一致 vs 不一致**：
+
+| 情况 | 处理 | 精度 |
+|---|---|---|
+| 两套动画帧数相同（run_yamato 8帧，run_beowulf 8帧） | 直接传帧号 | ✅ 精确对齐 |
+| 两套动画帧数不同（run_yamato 8帧，run_beowulf 10帧） | 按比例换算 | ⚠️ 近似对齐 |
+
+**推荐**：设计时让同位 locomotion 动画帧数一致（run_yamato 和 run_beowulf 都是 8 帧），这样相位同步最精确。
+
+#### changeAnimKeepPhase（只切动画不切 state）
+
+有时候不想切 state，只想切动画（比如同一 state 内换武器版动画）：
+
+```lua
+--- 切动画 + 保留相位（不切 state）
+---@param animId string 新动画 id
+function Player:changeAnimKeepPhase(animId)
+    local oldFrame = self.anim_frame or 1
+    local oldTick = self.anim_tick or 0
+    local oldTotal = self.anim and #self.anim.elements or 1
+
+    self:changeAnim(animId)   -- 标准 changeAnim（重置 anim_frame=1）
+
+    local newTotal = self.anim and #self.anim.elements or 1
+    if oldTotal == newTotal then
+        self.anim_frame = oldFrame
+        self.anim_tick = oldTick
+    else
+        local ratio = (oldFrame - 1) / oldTotal
+        self.anim_frame = math.floor(ratio * newTotal) + 1
+        self.anim_tick = 0
+    end
+end
+```
+
+#### 适用场景
+
+| 场景 | 用 setState 还是 setStateKeepPhase | 原因 |
+|---|---|---|
+| 攻击结束回 idle | setState（重置） | 新动画从头播，正常 |
+| 攻击取消切新攻击 | setState（重置） | 新攻击从头播，正常 |
+| 跳跃落地 | setState（重置） | 落地动画从头播 |
+| **locomotion 切武器** | **setStateKeepPhase** | 保留脚步相位，不跳帧 |
+| idle 切武器 | setStateKeepPhase | 保留 idle 相位（可选，idle 循环跳帧不明显） |
+
+**核心原则**：非循环动画（攻击/跳跃）用标准 setState（从头播）；循环动画（run/idle/walk）切武器时用 setStateKeepPhase（保留相位）。
+
+#### Love2D vs MUGEN：anim_frame 可写性
+
+#### MUGEN 的 anim time 是只读的
+
+MUGEN 的动画时间由引擎管理，**不能通过 sctrl 设置当前帧**：
+
+| MUGEN | Love2D | |
+|---|---|---|
+| `animelemno(0)` | `player.anim_frame` | 查当前帧号 |
+| ❌ 不能 set | ✅ `player.anim_frame = N` | 设当前帧号 |
+| `animelemtime(N)` | `player:animElemTime(N)` | 查第N帧已播放多久 |
+| ❌ 不能 set | ✅ `player.anim_tick = N` | 设当前帧内 tick |
+
+MUGEN 的所有动画切换 sctrl 都会重置 anim 时间：
+
+| sctrl | 作用 | 是否重置 anim 时间 |
+|---|---|---|
+| `ChangeAnim` | 切动画 | ✅ 重置（从第1帧开始） |
+| `ChangeAnim2` | 切到别人的动画 | ✅ 重置 |
+| `ChangeState` | 切状态（自动切 anim） | ✅ 重置 |
+| `SelfState` | 强制切状态 | ✅ 重置 |
+
+**MUGEN 没有相位继承的 sctrl**。
+
+#### MUGEN 要做相位继承得用变量 hack
+
+```
+步骤 1：切换前，用 var 记录当前 anim 帧号
+步骤 2：切到新 state/anim（会重置 anim 时间）
+步骤 3：新 state 里用一堆 [State] 块"快进"到记录的帧
+```
+
+伪代码（实际写很繁琐，MUGEN 社区基本不做）：
+
+```ini
+; ===== 旧 state（yamato run, state 21）=====
+; 切武器前记录当前 anim elem
+[State 21, 记录当前 anim 帧号]
+type = VarSet
+trigger1 = var(53) != 0       ; 武器变了
+v = 40
+value = animelemno(0)         ; 记录当前在第几帧
+
+[State 21, 切到新武器 run]
+type = ChangeState
+trigger1 = var(53) = 1
+value = 121
+
+; ===== 新 state（beowulf run, state 121）=====
+; 要恢复相位需要 hack，MUGEN 没有直接"跳到第N帧"的 sctrl
+; 实际通常不做，接受从第1帧重新播
+```
+
+**真实情况**：MUGEN 格斗游戏基本不做相位继承——格斗游戏没"跑步切武器"这种长时间循环动画切换的场景。OHMSBY 模板（DMC 风格 MUGEN 角色）每武器一套 state，接受 state_time 重置。
+
+#### 为什么 MUGEN 这么设计
+
+MUGEN 是 1999 年的引擎，为 2D 格斗游戏设计。格斗游戏：
+- locomotion 简单（idle/walk/jump），循环动画切换少
+- 主要切换是攻击/被击，本来就是非循环，从头播没问题
+- 没有"跑步切武器"这种场景
+
+所以 MUGEN 不需要相位继承——这是设计取舍，不是缺陷。Love2D 没有这个限制，`anim_frame` 可读可写，能直接做相位继承。
 
 ### 5.7 动画帧事件
 
