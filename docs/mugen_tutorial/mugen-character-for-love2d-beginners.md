@@ -1264,39 +1264,42 @@ MUGEN 每帧按固定顺序执行 5 层状态，这个在 input 文档和附录 
 每帧执行顺序：
 ┌──────────────────────────────────────────────────────────┐
 │  -4 层（updateAlways）                                    │
-│    极少用，hitpause 也跑。放全局必备逻辑                   │
-│    （如 AssertSpecial 重置、计时器递减）                   │
+│    极少用。特权：Pause/SuperPause 冻结时也跑              │
+│    （hitpause 下 sctrl 仍需 ignorehitpause=1）            │
 ├──────────────────────────────────────────────────────────┤
 │  -3 层（updateGlobal）                                    │
-│    全局前置，hitpause 时跳过                              │
-│    （朝向更新、锁定目标、物理预备）                        │
+│    MUGEN 语义：状态属于自己时每帧跑                       │
+│    （被 custom state 控制时不跑；常放音效/特效/角推）     │
+│    本文用法：全局前置（朝向更新、锁定目标）               │
 ├──────────────────────────────────────────────────────────┤
 │  -2 层（updateFlags）                                     │
-│    标志/变量更新，hitpause 时跳过                         │
-│    （蓄力标志、红刀、计时器递减）                          │
+│    MUGEN 语义：无条件每帧跑（被 custom state 控制时也跑） │
+│    本文用法：标志/变量更新（蓄力标志、红刀、计时器递减）  │
 ├──────────────────────────────────────────────────────────┤
 │  -1 层（updateControl）                                   │
-│    输入处理 + ChangeState，hitpause 时跳过                │
+│    MUGEN 语义：keyctrl 且状态属于自己时跑                 │
+│    本文用法：命令消费 + ChangeState                       │
 │    （命令检测、cancel_windows、trigger entry）            │
 │    ★ 详见 input 文档和附录 F                              │
 ├──────────────────────────────────────────────────────────┤
 │  当前状态（updateState）                                  │
-│    当前状态的逻辑，hitpause 时跳过                        │
-│    （推进帧数、状态结束检测、帧事件）                      │
+│    MUGEN 顺序：先跑 sctrl，后推进帧数/物理                │
+│    （本文 updateState 开头就 frame+1 是简化）             │
 └──────────────────────────────────────────────────────────┘
 ```
 
 **hitpause 时的处理**（复习）：
 
-- -4 层照跑（全局必备逻辑）
+- -4 层照跑（本文设计；注意 Ikemen 里 hitpause 过滤对 -4 的 sctrl 同样生效——它的特权只是不受 Pause 冻结）
 - -3/-2/-1/当前状态：sctrl 默认跳过（除非 `ignorehitpause = 1`）
+- ChangeState 在 hitpause 期间被缓冲，hitpause 结束才生效
 - 命令匹配照常跑，curbuftime 不递减（详见 input 文档 §5）
 
 **Love2D 的实现**（input 文档已给代码，这里简化回顾）：
 
 ```lua
 function Player:update(dt, buf, in_hitstop)
-    -- -4：hitstop 也跑
+    -- -4：hitstop 也跑（本文设计；MUGEN 里 -4 的真正特权是 Pause 冻结时也跑）
     self:updateAlways(dt, buf)
 
     if in_hitstop then return end  -- hitstop 分界线
