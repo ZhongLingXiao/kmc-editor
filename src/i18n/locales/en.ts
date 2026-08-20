@@ -205,6 +205,7 @@ export const en = {
     last: 'Last Frame',
     loop: 'Loop',
     speed60: '1x (60fps)',
+    customSpeed: 'Custom speed',
     frameBadge: 'Frame {{cur}}/{{total}}',
     zoomTimeline: 'Zoom timeline',
     importToCreate: 'Import images to create frames',

@@ -5,16 +5,13 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from '@/components/ui/select'
-import { SkipBack, ChevronLeft, Play, Pause, ChevronRight, SkipForward, Repeat } from 'lucide-react'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Input } from '@/components/ui/input'
+import { SkipBack, ChevronLeft, Play, Pause, ChevronRight, SkipForward, Repeat, ChevronDown, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Kbd } from '@/components/ui/kbd'
+
+const PRESET_SPEEDS = [0.25, 0.5, 1, 2]
 
 function TBtn({ children, onClick, disabled, title }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean; title: string }) {
   return (
@@ -45,9 +42,23 @@ export default function TimelineBar() {
   const togglePreviewLoop = useEditorStore((s) => s.togglePreviewLoop)
   const fps = useEditorStore((s) => s.fps)
 
+  const [speedPopoverOpen, setSpeedPopoverOpen] = useState(false)
+  const [customSpeedInput, setCustomSpeedInput] = useState('')
+
   const hasFrames = animation.elements.length > 0
   const isLastFrame = currentFrameIndex === animation.elements.length - 1
   const isFirstFrame = currentFrameIndex <= 0
+
+  const speedLabel = playSpeed === 1 ? t('timeline.speed60') : `${playSpeed}x`
+
+  const applyCustomSpeed = () => {
+    const v = parseFloat(customSpeedInput)
+    if (!isNaN(v) && v > 0) {
+      setPlaySpeed(v)
+      setSpeedPopoverOpen(false)
+      setCustomSpeedInput('')
+    }
+  }
 
   const [pxPerTick, setPxPerTick] = useState(12)
   const minPxPerTick = 2
@@ -256,17 +267,52 @@ export default function TimelineBar() {
 
         <Separator orientation="vertical" className="mx-1 h-5" />
 
-        <Select value={String(playSpeed)} onValueChange={(v) => setPlaySpeed(parseFloat(v))}>
-          <SelectTrigger className="h-7 w-[108px] border-0 bg-transparent px-2 shadow-none hover:bg-accent focus-visible:ring-0 focus-visible:border-0">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="0.25">0.25x</SelectItem>
-            <SelectItem value="0.5">0.5x</SelectItem>
-            <SelectItem value="1">{t('timeline.speed60')}</SelectItem>
-            <SelectItem value="2">2x</SelectItem>
-          </SelectContent>
-        </Select>
+        <Popover open={speedPopoverOpen} onOpenChange={setSpeedPopoverOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-[108px] justify-between border-0 bg-transparent px-2 shadow-none hover:bg-accent focus-visible:ring-0"
+            >
+              <span>{speedLabel}</span>
+              <ChevronDown className="size-3 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[160px] p-1" align="start" sideOffset={4}>
+            {PRESET_SPEEDS.map((s) => (
+              <button
+                key={s}
+                onClick={() => { setPlaySpeed(s); setSpeedPopoverOpen(false) }}
+                className={cn(
+                  'flex w-full items-center justify-between rounded-sm px-2 py-1 text-sm hover:bg-accent',
+                  playSpeed === s && 'bg-accent',
+                )}
+              >
+                <span>{s === 1 ? t('timeline.speed60') : `${s}x`}</span>
+                {playSpeed === s && <Check className="size-3" />}
+              </button>
+            ))}
+            <Separator className="my-1" />
+            <div className="px-1.5 py-1">
+              <div className="mb-1 text-[11px] text-muted-foreground">{t('timeline.customSpeed')}</div>
+              <div className="flex items-center gap-1">
+                <Input
+                  type="number"
+                  step="0.05"
+                  min="0.05"
+                  value={customSpeedInput}
+                  onChange={(e) => setCustomSpeedInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') applyCustomSpeed() }}
+                  placeholder={`${playSpeed}`}
+                  className="h-7 text-sm"
+                />
+                <Button variant="secondary" size="sm" className="h-7 px-2" onClick={applyCustomSpeed}>
+                  <Check className="size-3" />
+                </Button>
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
 
         <Separator orientation="vertical" className="mx-1 h-5" />
 

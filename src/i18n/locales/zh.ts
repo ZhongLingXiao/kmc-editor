@@ -205,6 +205,7 @@ export const zh = {
     last: '最后帧',
     loop: '循环播放',
     speed60: '1x (60fps)',
+    customSpeed: '自定义速度',
     frameBadge: '帧 {{cur}}/{{total}}',
     zoomTimeline: '缩放时间线',
     importToCreate: '导入图片以创建帧',
