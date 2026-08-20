@@ -310,17 +310,22 @@ local states = {
 
 MUGEN 角色每帧按 `-4 → -3 → -2 → -1 → 当前状态` 顺序执行。对应到 Love2D：
 
-| MUGEN state | Love2D 函数 | 职责 | hitstop 时 |
+| MUGEN state | Love2D 函数 | 本文 Love2D 分层职责 | MUGEN 真实语义（Ikemen-GO 源码） |
 |---|---|---|---|
-| **-4** | `updateAlways` | 极少用，hitstop 也跑 | ✅ 跑 |
-| **-3** | `updateGlobal` | 全局前置（朝向、锁定目标、物理） | ❌ 跳过 |
-| **-2** | `updateFlags` | 标志/变量更新（蓄力、红刀、计时器） | ❌ 跳过 |
-| **-1** | `updateControl` | on_frame + cancel_windows + 即时命令 + ChangeState | ❌ 跳过 |
-| **当前状态** | `updateState` | 推进帧数 + 状态结束 | ❌ 跳过 |
+| **-4** | `updateAlways` | 全局帧计数器、调试逻辑；本文里 hitstop 时也跑 | 极少用。特权：**Pause/SuperPause 冻结时也跑**（hitpause 下它的 sctrl 仍要 `ignorehitpause=1` 才跑） |
+| **-3** | `updateGlobal` | 全局前置（朝向、锁定目标、物理） | **状态属于自己**时每帧跑（被 custom state 控制时不跑）；角色作者常放音效、落地特效、角推（corner push） |
+| **-2** | `updateFlags` | 标志/变量更新（蓄力、红刀、计时器） | **无条件**每帧跑（被 custom state 控制时也跑）；常放变量、常驻 helper、规则检测 |
+| **-1** | `updateControl` | on_frame + cancel_windows + 即时命令 + ChangeState | **keyctrl 且状态属于自己**时跑；命令消费 + ChangeState |
+| **当前状态** | `updateState` | 推进帧数 + 状态结束 | **先跑 sctrl**，之后引擎才做物理（`posUpdate`）并推进 `ss.time` |
+
+> ⚠ 两点别搞混：
+> 1. **"朝向/物理放哪层"是本文 Love2D 的自创分层，不是 MUGEN 的规定。** MUGEN 的朝向（`autoTurn`）在命令解析阶段就做了（见后文「MUGEN state -1 的真实流程」②），物理在当前状态跑完后由引擎统一做（见后文「MUGEN（Ikemen-GO）的完整主循环」）。-3/-2 的"职责"只是角色作者的习惯用法：-2 放"任何情况都要跑的"（含被投技控制时），-3 放"自己的状态里才要跑的"（被打断/被控制时不跑，省得音效特效乱入）。
+> 2. **"hitstop 时整层跳过"是教学简化**（对应下面代码的 `if in_hitstop then return end`）。MUGEN 真实机制：hitpause 时层照样调用，每个 sctrl 单独判断 `ignorehitpause`；真正"整层跳过"的是 Pause/SuperPause——那才是 -4 存在的意义。详见后文「进阶补充」。
 
 ```lua
 function Player.update(player, dt, buf, in_hitstop)
     -- 1. updateAlways（-4）：hitstop 也跑，极少用
+    --    （MUGEN 里 -4 的真正特权是 Pause/SuperPause 冻结时也跑）
     player:updateAlways(dt, buf)
 
     -- ★ hitstop 分界线：后面全部跳过
@@ -350,7 +355,7 @@ end
 每一层放什么：
 
 ```lua
--- -4：hitstop 也跑（极少用）
+-- -4：hitstop 也跑（极少用；MUGEN 里它的真正特权是 Pause/SuperPause 冻结时也跑）
 function Player:updateAlways(dt, buf)
     -- 全局帧计数器、调试逻辑
 end
@@ -532,20 +537,23 @@ if c.ctrl() {
 
 **④ `c.actionRun()` — 跑状态层（核心，-4/-3/-2/-1/当前/+1 都在这）**
 
-这就是本文 `Player.update` 五层分层对应的那段。依次跑：
+这就是本文 `Player.update` 五层分层对应的那段。依次跑（各层运行条件来自 `char.go:11694-11726`）：
 
-| 步骤 | `c.minus` | 受 `pauseBool` 控制？ | 干啥 | 对应本文 |
-|---|---|---|---|---|
-| state -4 | -4 | ❌ 总是跑 | 极少用，hitpause 也跑 | `updateAlways` |
-| state -3 | -3 | ✅ | 朝向、锁定等 | `updateGlobal` |
-| state -2 | -2 | ✅ | 变量更新 | `updateFlags` |
-| state -1 | -1 | ✅ | 命令消费 + ChangeState | `updateControl` |
-| `stateChange2()` | — | ✅ | 把缓冲的状态切换真正生效 | `if state_changed then return` |
-| 当前状态 | 0 | ✅ | 推进帧数、跑 sctrl | `updateState` |
+| 步骤 | `c.minus` | 受 `pauseBool` 控制？ | 运行条件 | 干啥 | 对应本文 |
+|---|---|---|---|---|---|
+| state -4 | -4 | ❌ 总是跑 | 无条件 | 极少用；Pause/SuperPause 冻结时也跑 | `updateAlways` |
+| state -3 | -3 | ✅ | 状态属于自己（被 custom state 控制时不跑） | 音效、特效等角色全局逻辑 | `updateGlobal` |
+| state -2 | -2 | ✅ | 无条件（被 custom state 控制时也跑） | 变量更新、常驻 helper | `updateFlags` |
+| state -1 | -1 | ✅ | keyctrl 且状态属于自己 | 命令消费 + ChangeState | `updateControl` |
+| `stateChange2()` | — | ✅ | 且 `!hitPause` 才提交 | 把缓冲的状态切换真正生效 | `if state_changed then return` |
+| 当前状态 | 0 | ✅ | — | **先跑 sctrl**，之后才物理/帧数 | `updateState` |
 
-**注意 `stateChange2()`**：-1 层 ChangeState 不是立即切的，是先缓冲，等 -1 跑完才在 `stateChange2()` 真正切。这就是本文说的"-1 里触发的 ChangeState 会先排队"。
+**注意 `stateChange2()` 的两个细节**：
 
-之后还有：防御指令再查一次、state +1（收尾层，对应 `-10`）、物理更新（`posUpdate`、落地检测、`ss.time++`）。
+1. -1 层 ChangeState 不是立即切的，是先缓冲，等 -1 跑完才在 `stateChange2()` 真正切。这就是本文说的"-1 里触发的 ChangeState 会先排队"。
+2. `stateChange2()` 带 `!hitPause` 条件（`char.go:6584`）：**hitpause 期间 ChangeState 被压住不生效，hitpause 结束那一帧才切**。
+
+当前状态跑完后还有：防御指令再查一次、state -10 层（收尾层）、**然后才是物理**（`posUpdate` 速度积分/摩擦/重力、落地检测、`ss.time++` 推进状态时间）。也就是说 MUGEN 里"当前状态"是**先跑 sctrl、后推进帧数**——本文 `updateState` 开头就 `frame = frame + 1` 是教学简化（好在取消检测在 -1 层、推进之前跑，跟 MUGEN 一致）。
 
 **串起来的完整一帧**：
 
@@ -644,6 +652,96 @@ trigger1 = var(0) = 1            ; 且满足某个变量条件
 | 输入更新在所有 state 之前 | `char.go:13098` `cl.commandUpdate()` 在 `actionRun()` 之前 |
 | ChangeState 排队，等 -1 跑完才切 | `char.go:11722` `c.stateChange2()`（在 -1 之后、当前 state 之前提交） |
 
+#### MUGEN（Ikemen-GO）的完整主循环
+
+前面一直在看"角色这一帧怎么跑"，但角色只是引擎主循环的一环——命令解析、命中判定、物理、回合推进都不在角色状态机里。把镜头拉远，看一个逻辑帧从头到尾发生什么（源码：`system.go` 的主循环与 `action()`、`char.go` 的 `charList.action()`）。
+
+**第一层：对局主循环（`system.go:3806`）**，每个渲染帧跑一次：
+
+```
+fight() 每个渲染帧:
+ ├─ synchronize()       网络同步 / 回放输入注入
+ ├─ runNextRound()      回合切换（换人、重置）
+ ├─ action()            ★ 核心逻辑（第二层）
+ ├─ addFrameTime()      帧率控制：决定本渲染帧是否推进逻辑帧
+ └─ eventUpdate() + 渲染
+```
+
+**第二层：`action()`（`system.go:2594`）**。注意 `tickFrame()` 是逻辑帧门槛——MUGEN 逻辑固定 60fps，渲染帧率可以更高：
+
+```
+action():
+ 1. stepRoundState()    回合状态机：intro → fight → over（胜者切胜姿也在这）
+ 2. stage.action()      舞台/背景
+ 3. if tickFrame():     ← 逻辑帧门槛
+ │   ├─ 屏幕边界 xmin/xmax/zmin/zmax 计算
+ │   ├─ Pause/SuperPause 计时器步进、全局 AssertSpecial 重置
+ │   ├─ charList.action()   ★ 角色状态机（第三层）
+ │   └─ 全局特效步进（allPalFX / envShake / zoom）
+ 4. charUpdate()        每渲染帧：销毁标记的 helper、bind、位置插值、投射物更新
+ 5. fightScreen.step()  血条/计时器 UI
+ 6. if tickNextFrame():
+ │   ├─ globalCollision()   ★ 命中检测（第四层）
+ │   └─ globalTick()        动画推进、bind 计时、matchTime++
+ 7. cam.action()        摄像机
+```
+
+**第三层：`charList.action()`（`char.go:13092`）**——角色状态机主战场，四个阶段：
+
+```
+① commandUpdate()   所有角色统一：读输入 → Buffer → 命令Step
+                    （root 的 autoTurn 朝向更新也在这）
+② actionPrepare()   硬编码基本动作【决策】：防守120/跳40/空跳45/蹲10/站12/走20
+                    （changeState 只缓冲不提交；读的 inguarddist 是上一帧碰撞算的）
+③ actionRun()  逐角色:
+   ├─ -4 层                          （不受 pauseBool 限制——这就是 -4 的特权）
+   ├─ if !pauseBool:                 ← Pause/SuperPause 冻结时以下全跳过
+   │   ├─ -3 层                      （状态属于自己）
+   │   ├─ -2 层                      （无条件）
+   │   ├─ -1 层                      （状态属于自己 + keyctrl）
+   │   ├─ stateChange2()             提交缓冲的状态切换（!hitPause 才提交！）
+   │   └─ 当前状态 sb.run()           每个 sctrl 逐个过 hitPause/ignorehitpause/persistent
+   ├─ 防守指令处理、-10 层（Ikemen 扩展）
+   ├─ if !pauseBool:
+   │   ├─ if !hitPause:
+   │   │   ├─ 强制起身(5110→5120)、防御结束(140→11/51)
+   │   │   ├─ posUpdate()            ★ 物理：速度积分、摩擦、重力
+   │   │   ├─ 落地检测（physics=A → state 52）
+   │   │   ├─ setFacing、ss.time++   ★ 状态时间推进（在 sctrl 之后！）
+   │   │   └─ updateCurFrame()       动画帧提交
+   │   ├─ 伤害/气力结算              （上帧命中写入的 ghv.damage → lifeAdd；
+   │   │                             ★ 在 !hitPause 之外，hitpause 期间也扣血）
+   │   └─ hitstun 计时器              （hitshaketime/hittime/fall/down_recovertime）
+   └─ xScreenBound()、targets bind()
+④ actionFinish()    palfx、KO 判定（KO 时强制切 state 5030）、over flags
+```
+
+三个容易看漏的点：
+
+- **① 是"系统层"**：这就是前面说的"命令解析在所有 state 之前"的落点。所有角色（含 helper）的命令都解析完，才开始逐个跑状态机。
+- **② 只缓冲不提交**：硬编码动作的 ChangeState 和 -1 里写的 ChangeState 走同一个缓冲（`stchtmp`），后写的覆盖先写的——所以 -1 能"抢"在引擎默认行为前面。
+- **③ 里物理和时间推进在 sctrl 之后**：先跑完状态逻辑，引擎才做 `posUpdate`、`ss.time++`。本文 `updateState` 开头就 `frame = frame + 1`，顺序相反，但取消检测在 -1 层（推进之前）跑，实际效果一致。
+
+**第四层：命中检测——"技能"是怎么打中的**
+
+所有角色的 `actionRun` 跑完之后，引擎才统一做碰撞：
+
+1. 攻击状态里的 `HitDef` sctrl 只是把攻击参数（伤害、pausetime、attr……）写进 `c.hitdef`，**不做判定**
+2. `globalCollision()` 拿双方 clsn 框做重叠判定：攻击方 clsn1 vs 受击方 clsn2，再过一遍生效条件（attr/hitflag/hitby/juggle 等）
+3. 命中 → 受击方 gethitvars 写入、双方进 hitpause、受击方缓冲切到 5000 系被击状态、伤害进缓冲
+4. **下一帧** `actionRun` 里才结算伤害（`lifeAdd`）、hitstun 计时器开始递减
+
+所以"打中"和"被打的人做出反应"差一帧；`actionPrepare` 硬编码防御用到的 `inguarddist`（防御距离）也是上一帧碰撞算出来的。
+
+**对应到本文架构**：
+
+| Ikemen-GO | 本文 Love2D 主循环 |
+|---|---|
+| `commandUpdate()` 在所有角色 state 之前统一跑 | 步骤 1-4（Input/前后解析/Buffer/Command）在 `Player.update` 之前 |
+| `globalCollision()` 在所有角色 action 之后统一跑 | 步骤 6 `EntityManager.update()` 在 `Player.update` 之后 |
+| 物理（`posUpdate`）在当前状态 sctrl 之后由引擎做 | 本文并入 `updateGlobal`/`updateState`（简化） |
+| 渲染帧 ≠ 逻辑帧（`tickFrame()` 门槛） | 本文 60fps 一帧一逻辑（简化） |
+
 #### 为什么这样分层
 
 | 分层原因 | 例子 |
@@ -652,6 +750,8 @@ trigger1 = var(0) = 1            ; 且满足某个变量条件
 | 蓄力标志不管什么状态都要更新 | `updateFlags`（-2）独立于 `updateState`（当前状态） |
 | 命令检测在状态推进之前 | `updateControl`（-1）在 `updateState` 之前，切了状态就不推进 |
 | hitstop 时部分逻辑仍需跑 | `updateAlways`（-4）在 hitstop 分界线之前 |
+
+> 顺带一提：MUGEN 原版没有把朝向放 -3——`autoTurn` 在命令解析阶段（`commandUpdate`）就做了，比所有 state 都早，所以转身当帧 B/F 输入立刻反转。本文放 -3 是因为 Love2D 主循环的前后解析在 `Player.update` 之前，用的还是上一帧的 facing（主循环步骤 2 的注释）。
 
 **Player 不直接访问 Input**——通过 `buf` 参数接收 Buffer 数据，通过 `Command.isActive(cmd)` 查命令状态。`updateFlags` 里更新的变量都是角色级的（`self.*`），对应 MUGEN 的 `var()`。
 
@@ -746,11 +846,13 @@ local sctrls_minus2 = {
     },
 }
 
--- state -4 层：无论 hitpause 都调用（极少用，但有些必备逻辑放这里）
+-- state -4 层：不受 Pause 冻结（层始终调用）。注意 hitpause 过滤对 -4 同样生效，
+-- 所以要"任何时候都跑"的 sctrl 依然得标 ignorehitpause（极少用，但有些必备逻辑放这里）
 local sctrls_always = {
     {
         name = "无敌计时器递减",
         color = {1, 1, 0.4},
+        ignorehitpause = true,   -- hitpause 时也要跑（-4 没有 hitpause 豁免）
         run = function(p)
             if p.invincible > 0 then p.invincible = p.invincible - 1 end
         end,
@@ -772,7 +874,7 @@ local function runSctrl(sctrl, p, key)
 end
 
 function love.update(dt)
-    -- state -4：始终调用（层不跳过）
+    -- state -4：层始终调用（不受 Pause 冻结；hitpause 下 sctrl 仍按 ignorehitpause 过滤）
     for i, s in ipairs(sctrls_always) do
         runSctrl(s, player, "always_"..i)
     end
@@ -843,7 +945,7 @@ end
 
 1. 先按 `J` `K` `L` 给三个计时器充能，再按 `N` 给角色一个速度。观察：所有 sctrl 都在跑（都显示 `[X]`），角色方块在移动。
 2. 按 `H` 触发 hitpause（8 帧）。仔细看：
-   - **state -4 的"无敌计时器"**：照常递减（`[X]`），因为 state -4 层始终调用
+   - **state -4 的"无敌计时器"**：照常递减（`[X]`），因为它标了 `ignorehitpause = true`——Ikemen 里 hitpause 过滤对 -4 的 sctrl 同样生效（`bytecode.go:4553` 没有层豁免），-4 的真正特权是不受 Pause/SuperPause 冻结
    - **state -2 的"受击硬直"**：被跳过（`[ ] <- skipped`），数值不动
    - **state -2 的"特效计时器"**：照常递减（`[X]`），因为它声明了 `ignorehitpause = true`
    - **state -2 的"应用位移"**：被跳过（`[ ] <- skipped`），角色方块冻住
@@ -861,7 +963,7 @@ end
 | `c.hitPause()` 判断 | `char.go:9111` `return c.hitPauseTime > 0` |
 | `sctrl.ignorehitpause` 默认 false | `bytecode.go:4539` `ignorehitpause: -2`（-2 表示默认跳过） |
 | 每个 sctrl 单独判断 | `bytecode.go:4553-4557` `if c.hitPause() { if b.ignorehitpause < -1 { return false } }` |
-| state -4 层始终调用 | `char.go:11694-11698`（不在 `if !c.pauseBool` 块里） |
+| state -4 层不受 pauseBool 门控 | `char.go:11694-11698`（不在 `if !c.pauseBool` 块里；hitpause 过滤对 -4 同样生效，见上一行） |
 | state -2 层调用（不判断 hitpause） | `char.go:11707-11713`（在 `if !c.pauseBool` 块里，但 `pauseBool` 只管 Pause 不管 hitpause） |
 
 ### 主循环
