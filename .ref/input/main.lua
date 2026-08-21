@@ -442,17 +442,6 @@ local actions = {
         },
     },
     -- 特殊技动作：承诺招，后摇可被取消（special-cancel 后摇靠前；attack/jump 按承诺度）
-    rapid_slash = {
-        name = "rapid_slash",
-        startup = 18, active = 10, recovery = 45,
-        cancel = {
-            {cmd = "void_slash", open = 33, priority = 5},
-            {cmd = "upper_slash", open = 33, priority = 4},
-            {cmd = "rapid_slash", open = 33, priority = 4},
-            {cmd = "yamato_a_1", open = 52, priority = 1},
-            {cmd = "jump", open = 60, priority = 1},
-        },
-    },
     void_slash = {
         name = "void_slash",
         startup = 14, active = 8, recovery = 36,
@@ -462,6 +451,17 @@ local actions = {
             {cmd = "rapid_slash", open = 50, priority = 4},
             {cmd = "yamato_a_1", open = 50, priority = 1},
             {cmd = "jump", open = 52, priority = 1},
+        },
+    },
+    rapid_slash = {
+        name = "rapid_slash",
+        startup = 18, active = 10, recovery = 45,
+        cancel = {
+            {cmd = "void_slash", open = 33, priority = 5},
+            {cmd = "upper_slash", open = 33, priority = 4},
+            {cmd = "rapid_slash", open = 33, priority = 4},
+            {cmd = "yamato_a_1", open = 52, priority = 1},
+            {cmd = "jump", open = 60, priority = 1},
         },
     },
     upper_slash = {
@@ -516,8 +516,15 @@ end
 
 -- idle 取消表：和 action 的 cancel entry 同构，{cmd=目标动作, priority=...}
 -- cmd 写目标动作名；inputForAction 决定按什么输入键。
+-- idle 时所有命令都可触发，因此这里必须列出全部 idle 可触发的目标，
+-- priority 与 action.cancel 里同名条目保持一致，否则 idle 下特殊技/jump 无法触发，
+-- 也会丢失“高优先命令取胜后清理低优先子集”的行为（如 D+J 时 rapid_slash 胜出并 clear attack）。
 local idleCancel = {
-    {cmd = "yamato_a_1", priority = 1},
+    {cmd = "void_slash",  priority = 5},
+    {cmd = "upper_slash", priority = 4},
+    {cmd = "rapid_slash", priority = 4},
+    {cmd = "yamato_a_1",  priority = 1},  -- attack 输入 → 起手 yamato_a_1
+    {cmd = "jump",        priority = 1},
 }
 
 local currentAction = nil       -- nil == idle
