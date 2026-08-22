@@ -44,31 +44,34 @@
    ▼
 ┌──────────────────────────────────┐
 │ 3. 命令匹配（Command.Step）        │  检查输入序列是否匹配命令
-│    src/input.go:2434             │  匹配成功 → curbuftime = maxbuftime
+│    src/input.go:2373             │  匹配成功 → curbuftime = maxbuftime
 └──────────────────────────────────┘
    │
    ▼
 ┌──────────────────────────────────┐
-│ 4. 状态机执行（actionRun）        │  按顺序执行：
-│    src/char.go:11690             │  state -4 → -3 → -2 → -1 → 当前状态
+│ 4. 状态机执行（actionRun）        │  按角色顺序，每人先跑 CNS：
+│    src/char.go:11654             │  -4 → -3 → -2 → -1 → 当前状态 → +1
+│    内含 StateBytecode.run        │  trigger 里 OC_command 检查 curbuftime
+│    src/bytecode.go:15284         │  VelSet / HitDef / ChangeState 在这里发生
 └──────────────────────────────────┘
    │
    ▼
 ┌──────────────────────────────────┐
-│ 5. 字节码运行（StateBytecode.run）│  评估 trigger → 执行 SC
-│    src/bytecode.go:15301         │  trigger 中用 OC_command 检查 curbuftime
+│ 5. 物理积分（posUpdate）          │  仍在同一个 actionRun 末尾：
+│    src/char.go:9587              │  pos += vel，地面摩擦 / 空中重力，落地进 52
+│    调用点 char.go:11759          │  不是 Char.update；后跑的角色能看到先跑角色的新坐标
 └──────────────────────────────────┘
    │
    ▼
 ┌──────────────────────────────────┐
-│ 6. 物理与碰撞（update + collision）│  速度积分、位置更新、攻击判定
-│    src/char.go:12068, 13817      │
+│ 6. 全局碰撞（collisionDetection） │  所有人都移动完才做：
+│    src/char.go:13771             │  推挤 → 角色 HitDef → 投射物
 └──────────────────────────────────┘
    │
    ▼
 ┌──────────────────────────────────┐
-│ 7. 渲染（renderFrame）            │  绘制画面
-│    src/system.go:3908            │
+│ 7. 渲染（renderFrame）            │  绘制画面（在 runMatch 里，不在 action 内）
+│    src/system.go:845             │
 └──────────────────────────────────┘
 ```
 
@@ -409,7 +412,7 @@ SOCD（Same Opposite Cardinal Direction）指同时按下相反方向（如左+�
 
 ### 4.1 每帧匹配
 
-每个命令每帧由 `Command.Step`（`input.go:2434-2600`）更新匹配状态：
+每个命令每帧由 `Command.Step`（`input.go:2373`）更新匹配状态：
 
 ```go
 func (c *Command) Step(ai bool, helper bool, hpbuf, pausebuf bool, extratime int32) bool
@@ -1972,50 +1975,67 @@ transitions:
 
 ### 11.1 比赛循环
 
-比赛级循环在 `System.runMatch`（`system.go:3720-3929`）：
+比赛级循环在 `System.runMatch`（`system.go:3704`）。逻辑在 `action()`，画面在之后的 `renderFrame()`，`System.update()` 只负责锁帧/联网等待，不改角色位置：
 
 ```go
 for !s.endMatch {
     if !s.runNextRound() { break }   // 回合/比赛转换
-    s.action()                       // 主帧逻辑
-    s.renderFrame()                  // 渲染
-    s.update()                       // 等待下一帧
+    s.action()                       // 主帧逻辑（状态机、物理、碰撞）
+    s.renderFrame()                  // 渲染（system.go:845）
+    s.update()                       // 等待下一帧（不是物理 update）
 }
 ```
 
 ### 11.2 System.action —— 每帧流水线
 
-`System.action`（`system.go:2594`）是每帧的核心：
+`System.action`（`system.go:2594`）是每帧的核心。逻辑帧拆成 `tickFrame`（做决定 + 位移）和 `tickNextFrame`（全局碰撞），`renderFrame` **不在这里面**：
 
 | 顺序 | 代码 | 说明 |
 |------|------|------|
 | 1 | `clearSpriteData()` | 清空精灵数据 |
 | 2 | `stepRoundState()` | 回合状态、计时器、KO 处理 |
 | 3 | `stage.action()` | 场景背景更新 |
-| 4 | **`charList.action()`** | **角色逻辑（核心）** |
-| 5 | `charUpdate()` | 物理更新（速度积分、位置） |
-| 6 | `fightScreen.step()` | 血条/连击更新 |
-| 7 | `globalCollision()` | 碰撞检测 |
-| 8 | `globalTick()` | 推进比赛时间 |
+| 4 | **`tickFrame` → `charList.action()`** | **指令 + 每人「CNS 状态机 + `posUpdate`」** |
+| 5 | `charUpdate()` → `Char.update` | 每 tick 杂务：绑定、受击偏移、绘制插值。**不是** `pos += vel` |
+| 6 | `fightScreen.step()` | 血条/连击（须在碰撞前，才能正确结束连段） |
+| 7 | **`tickNextFrame` → `globalCollision()`** | **所有人都移动完后：推挤 → 攻击 → 投射物** |
+| 8 | `tickNextFrame` → `globalTick()` | 动画步进、`matchTime++` |
 | 9 | `cam.action()` | 摄像机更新 |
 | 10 | `cueDraw()` | 构建绘制列表 |
-| 11 | `renderFrame()` | 渲染 |
+
+对应源码骨架：
+
+```go
+if s.tickFrame() {
+    s.charList.action()   // 指令 → 每人 actionRun（含 posUpdate）
+}
+s.charUpdate()            // Char.update：插值/绑定，不是物理积分
+s.fightScreen.step()
+if s.tickNextFrame() {
+    s.globalCollision()   // 推挤 + HitDef + 投射物
+    s.globalTick()        // 动画帧前进
+}
+```
 
 ### 11.3 CharList.action —— 角色逻辑顺序
 
-`CharList.action`（`char.go:13092-13118`）：
+`CharList.action`（`char.go:13046`）：
 
 ```go
-cl.updateRunOrder()        // 1. 按优先级排序（runfirst/runlast）
-cl.commandUpdate()         // 2. 输入读取 + 命令匹配
-for _, c := range cl.runOrder { c.actionPrepare() }   // 3. 硬编码按键、重置标志
-for _, c := range cl.runOrder { c.actionRun() }        // 4. 状态机执行
+cl.updateRunOrder()        // 1. 按优先级排序（runfirst / 攻击方优先 / runlast）
+cl.commandUpdate()         // 2. 所有角色：输入读取 + 命令匹配
+for _, c := range cl.runOrder { c.actionPrepare() }   // 3. 硬编码走跳蹲、重置标志
+for i := 0; i < len(cl.runOrder); i++ {
+    cl.runOrder[i].actionRun()   // 4. 该角色 CNS，然后立刻 posUpdate
+}
 for _, c := range cl.runOrder { c.actionFinish() }     // 5. 清理
 ```
 
+注意第 4 步是 **按角色交错**，不是「全员先跑完状态机，再统一做物理」：A 的 CNS → A 的位移 → B 的 CNS → B 的位移。后执行的角色读 `P2Dist` / `Pos` 时，已经是先执行角色的新坐标。
+
 ### 11.4 CharList.commandUpdate —— 输入与命令
 
-`CharList.commandUpdate`（`char.go:12956-13036`）对每个角色：
+`CharList.commandUpdate`（`char.go:12910`）对每个角色：
 
 ```go
 // 1. 读取原始输入
@@ -2036,7 +2056,7 @@ for i := range c.cmd {
 
 ### 11.5 Char.actionRun —— 状态机执行顺序
 
-`Char.actionRun`（`char.go:11690-11762`）按固定顺序执行状态：
+`Char.actionRun`（`char.go:11654`）按固定顺序执行状态，**同一函数末尾再做该角色的物理积分**：
 
 ```go
 c.minus = -4
@@ -2054,26 +2074,40 @@ if !c.pauseBool {
     
     c.stateChange2()                                      // 应用缓冲的 ChangeState
     c.minus = 0
-    c.ss.sb.run(c)                                        // 当前状态
+    c.ss.sb.run(c)                                        // 当前状态（VelSet / HitDef / ChangeState）
 }
 
 // guarding 逻辑 + state +1
 c.minus = -4
 if sb, ok := c.gi().states[-10]; ok { sb.run(c) }        // state +1（存为 -10）
+
+if !c.pauseBool && !c.hitPause() {
+    c.posUpdate()                                        // 该角色物理：pos += vel
+    // physics = A 且落到地面 → ChangeState 52
+}
 ```
 
-**执行顺序**：`-4 → -3 → -2 → -1 → stateChange2 → 当前状态 → +1`
+**状态顺序**：`-4 → -3 → -2 → -1 → stateChange2 → 当前状态 → +1`  
+**然后立刻**：`posUpdate()`（受击硬直 / Pause 时跳过积分）
 
 ### 11.6 物理与碰撞
 
-物理更新与碰撞检测在 `action()` 之后：
+物理积分在 **每个角色自己的 `actionRun` 末尾**，不在 `charList.action()` 之后另开一轮。碰撞才是所有角色都跑完之后的全局阶段。
 
 | 顺序 | 代码 | 说明 |
 |------|------|------|
-| 1 | `Char.update`（`char.go:12068`） | 物理更新：速度积分、位置、倒地机制 |
-| 2 | `CharList.collisionDetection`（`char.go:13817`） | 推挤检测 |
-| 3 | `hitDetectionPlayer`（`char.go:13150`） | 玩家攻击判定 |
-| 4 | `hitDetectionProjectile`（`char.go:13377`） | 投射物攻击判定 |
+| 1 | `Char.posUpdate`（`char.go:9587`，在 `actionRun` 末尾调用） | 真正的物理：`pos += vel`、站/蹲摩擦、空中 `gravity()`、落地切 52 |
+| 2 | `Char.update`（`char.go:12027`，由 `charUpdate` 每 tick 调用） | **不是**速度积分。绑定、受击偏移、绘制插值、倒地计数 |
+| 3 | `CharList.collisionDetection`（`char.go:13771`） | 先推挤（必须在攻击判定前） |
+| 4 | `hitDetectionPlayer`（`char.go:13104`） | 角色 HitDef vs 玩家 |
+| 5 | `hitDetectionProjectile`（`char.go:13331`） | 投射物判定 |
+
+为什么要这样排：
+
+1. **先 CNS 再 `posUpdate`**：跳起来那帧 `VelSet y = -8` 必须先写入，这帧 `pos` 才会离地。反过来会晚一帧才跳。
+2. **每人做完位移再轮到下一个人**：后跑的角色这帧就能读到先跑角色的新 `Pos`（处理顺序会影响 `P2Dist`）。
+3. **所有人都走完再碰撞**：用移动后的红/蓝框做判定；推挤先把重叠掰开，再算命中，避免叠模误伤。
+4. **被打中的人这帧 CNS 已经跑过**：受击状态从下一帧才开始执行。
 
 ---
 
@@ -2081,24 +2115,27 @@ if sb, ok := c.gi().states[-10]; ok { sb.run(c) }        // state +1（存为 -1
 
 ### 12.1 一帧的完整流程
 
+输入和命令是 **全员先做完**；状态机和物理是 **按角色交错**（A 的 CNS → A 的 `posUpdate` → B 的 CNS → B 的 `posUpdate`）；碰撞是 **全员都移动完再统一做**。
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ 第 N 帧开始                                                  │
+│ 第 N 逻辑帧开始                                              │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ 1. 输入读取                                                  │
-│    char.go:12993  InputUpdate                                │
-│    input.go:2824  updateInputTime                            │
+│ 1. 输入读取（所有角色）                                       │
+│    char.go:12910  commandUpdate                              │
+│    input.go:2600  CommandList.InputUpdate                    │
+│    input.go:695   updateInputTime                            │
 │    → Ub/Db/Fb/... 更新（正=按住，负=松开）                    │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ 2. 命令匹配                                                  │
-│    char.go:13028  CommandList.Step                          │
-│    input.go:2434   Command.Step                             │
+│ 2. 命令匹配（所有角色）                                       │
+│    input.go:2825   CommandList.Step                          │
+│    input.go:2373   Command.Step                              │
 │    → 遍历每个命令的 loopOrder                                 │
 │    → 匹配输入序列                                             │
 │    → 匹配成功：curbuftime = maxbuftime + extratime             │
@@ -2107,57 +2144,68 @@ if sb, ok := c.gi().states[-10]; ok { sb.run(c) }        // state +1（存为 -1
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ 3. 状态机执行（每个角色）                                     │
-│    char.go:11690  actionRun                                  │
-│    ├─ state -4（Ikemen 扩展）                                 │
-│    ├─ state -3（辅助计算）                                    │
-│    ├─ state -2（全局状态机）                                  │
-│    ├─ state -1（命令处理）                                    │
-│    ├─ stateChange2（应用缓冲的状态切换）                       │
-│    ├─ 当前状态                                                │
-│    │   └─ StateBytecode.run                                  │
-│    │       └─ StateBlock.Run                                 │
-│    │           ├─ trigger.evalB → 评估条件                    │
-│    │           │   └─ OC_command → Char.command               │
-│    │           │       └─ curbuftime > 0 ?                    │
-│    │           ├─ SC 列表执行                                 │
-│    │           │   ├─ ChangeAnim                              │
-│    │           │   ├─ VelSet                                  │
-│    │           │   ├─ HitDef                                  │
-│    │           │   └─ ChangeState → 触发状态切换              │
-│    │           └─ persistent 更新                             │
-│    └─ state +1（Ikemen 扩展）                                 │
+│ 3. 按 runOrder 逐个角色：状态机 + 物理                        │
+│    char.go:11654  actionRun                                  │
+│    │                                                         │
+│    │  3a. 该角色 CNS                                         │
+│    │      ├─ state -4（Ikemen 扩展）                          │
+│    │      ├─ state -3（辅助计算）                             │
+│    │      ├─ state -2（全局状态机）                           │
+│    │      ├─ state -1（命令处理）                             │
+│    │      ├─ stateChange2（应用缓冲的状态切换）                │
+│    │      ├─ 当前状态                                         │
+│    │      │   └─ StateBytecode.run / StateBlock.Run          │
+│    │      │       ├─ trigger → OC_command → curbuftime > 0   │
+│    │      │       └─ SC：ChangeAnim / VelSet / HitDef /      │
+│    │      │              ChangeState                         │
+│    │      └─ state +1（Ikemen 扩展，存为 -10）                │
+│    │                                                         │
+│    │  3b. 该角色物理（仍在 actionRun 内，不是 Char.update）    │
+│    │      char.go:9587  posUpdate                            │
+│    │      → pos += vel                                       │
+│    │      → 站/蹲摩擦，或空中 gravity()                       │
+│    │      → 落地检测 → ChangeState 52                        │
+│    │                                                         │
+│    └─ 下一角色重复 3a → 3b                                   │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ 4. 物理更新                                                  │
-│    char.go:12068  Char.update                                │
-│    → vel += accel（重力）                                     │
-│    → pos += vel                                              │
-│    → 触地检测                                                 │
+│ 4. 每 tick 杂务（不是物理积分）                               │
+│    system.go:2487  charUpdate → char.go:12027 Char.update    │
+│    → 绑定、受击偏移、绘制插值、倒地计数                       │
+│    system.go:2678  fightScreen.step（血条/连段，碰撞前）      │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ 5. 碰撞检测                                                  │
-│    char.go:13817  collisionDetection                         │
-│    → 推挤检测                                                 │
-│    → 攻击判定（HitDef vs 玩家）                                │
-│    → 投射物判定                                               │
+│ 5. 全局碰撞（tickNextFrame，所有人都已移动）                   │
+│    system.go:2499  globalCollision                           │
+│    char.go:13771   collisionDetection                        │
+│    → 推挤检测（必须先做）                                     │
+│    → hitDetectionPlayer：HitDef vs 玩家                      │
+│    → hitDetectionProjectile：投射物                          │
+│    → 受击状态从下一帧才跑 CNS                                 │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ 6. 渲染                                                      │
-│    system.go:3908  renderFrame                               │
+│ 6. 动画 / 镜头 / 绘制列表                                     │
+│    system.go:2947  globalTick（anim.Action、matchTime++）     │
+│    cam.action / cueDraw                                      │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 7. 渲染                                                      │
+│    system.go:845   renderFrame（在 runMatch 里，不在 action） │
 │    → 绘制精灵、特效、UI                                       │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ 第 N+1 帧                                                   │
-��─────────────────────────────────────────────────────────────┘
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ### 12.2 命令触发的时序示例
@@ -2216,12 +2264,12 @@ if sb, ok := c.gi().states[-10]; ok { sb.run(c) }        // state +1（存为 -1
 | CommandStep 结构 | `src/input.go` | 1938 |
 | CommandStepKey 结构 | `src/input.go` | 16 |
 | 命令字符串解析 | `src/input.go` | 2030 |
-| Command.Step（每帧匹配） | `src/input.go` | 2434 |
+| Command.Step（每帧匹配） | `src/input.go` | 2373 |
 | Command.Clear | `src/input.go` | 2419 |
 | loopOrder 设置 | `src/input.go` | 2277 |
 | CommandList 结构 | `src/input.go` | 2604 |
-| CommandList.Step | `src/input.go` | 2886 |
-| CommandList.InputUpdate | `src/input.go` | 2661 |
+| CommandList.Step | `src/input.go` | 2825 |
+| CommandList.InputUpdate | `src/input.go` | 2600 |
 
 ### 13.2 CMD 编译
 
@@ -2246,7 +2294,7 @@ if sb, ok := c.gi().states[-10]; ok { sb.run(c) }        // state +1（存为 -1
 | 主题 | 文件 | 行号 |
 |------|------|------|
 | StateBytecode 结构 | `src/bytecode.go` | 15247 |
-| StateBytecode.run | `src/bytecode.go` | 15301 |
+| StateBytecode.run | `src/bytecode.go` | 15284 |
 | StateBlock 结构 | `src/bytecode.go` | 4518 |
 | StateBlock.Run | `src/bytecode.go` | 4542 |
 | StateControllerBase.run | `src/bytecode.go` | 4785 |
@@ -2260,25 +2308,29 @@ if sb, ok := c.gi().states[-10]; ok { sb.run(c) }        // state +1（存为 -1
 | 主题 | 文件 | 行号 |
 |------|------|------|
 | Char.cmd 字段 | `src/char.go` | 3233 |
-| Char.command（cmd trigger 后端） | `src/char.go` | 5230 |
-| Char.actionRun（状态机顺序） | `src/char.go` | 11690 |
-| Char.actionPrepare | `src/char.go` | 11496 |
-| Char.update（物理） | `src/char.go` | 12068 |
-| Char.stateChange2 | `src/char.go` | 6583 |
-| Char.changeStateEx | `src/char.go` | 6606 |
-| CharList.commandUpdate | `src/char.go` | 12956 |
-| CharList.action | `src/char.go` | 13092 |
-| CharList.collisionDetection | `src/char.go` | 13817 |
-| CharList.hitDetectionPlayer | `src/char.go` | 13150 |
+| Char.command（cmd trigger 后端） | `src/char.go` | 5205 |
+| Char.actionRun（状态机 + 末尾 posUpdate） | `src/char.go` | 11654 |
+| Char.actionPrepare | `src/char.go` | 11460 |
+| Char.posUpdate（物理积分） | `src/char.go` | 9587 |
+| Char.update（插值/绑定，不是物理） | `src/char.go` | 12027 |
+| Char.stateChange2 | `src/char.go` | 6557 |
+| Char.changeStateEx | `src/char.go` | 6580 |
+| CharList.commandUpdate | `src/char.go` | 12910 |
+| CharList.action | `src/char.go` | 13046 |
+| CharList.collisionDetection | `src/char.go` | 13771 |
+| CharList.hitDetectionPlayer | `src/char.go` | 13104 |
+| CharList.hitDetectionProjectile | `src/char.go` | 13331 |
 
 ### 13.6 主循环
 
 | 主题 | 文件 | 行号 |
 |------|------|------|
-| System.runMatch | `src/system.go` | 3720 |
+| System.runMatch | `src/system.go` | 3704 |
 | System.action | `src/system.go` | 2594 |
-| System.charUpdate | `src/system.go` | 2487 |
+| System.charUpdate（每 tick 杂务） | `src/system.go` | 2487 |
 | System.globalCollision | `src/system.go` | 2499 |
+| System.globalTick | `src/system.go` | 2947 |
+| System.renderFrame | `src/system.go` | 845 |
 | System.stepRoundState | `src/system.go` | 3054 |
 
 ---
@@ -2320,8 +2372,10 @@ params = input.up, input.down, input.forward, input.back, input.a, input.b, inpu
 1. **输入读取**：InputBuffer 记录每个按键的 hold/release 计时
 2. **命令匹配**：Command.Step 每帧检查输入序列是否匹配命令定义
 3. **缓冲机制**：buffer.time 控制命令完成后保持多久可用，buffer.hitpause / buffer.pauseend 控制暂停中的行为
-4. **状态执行**：按 -4 → -3 → -2 → -1 → 当前状态的顺序执行字节码
-5. **Trigger 求值**：栈式虚拟机执行编译后的 OpCode，OC_command 检查 curbuftime
-6. **SC 执行**：trigger 为 true 时执行 State Controller，ChangeState 触发状态切换
+4. **状态执行**：按角色顺序跑 -4 → -3 → -2 → -1 → 当前状态 → +1
+5. **物理积分**：同一角色 `actionRun` 末尾调用 `posUpdate`（`pos += vel`），不是 `Char.update`
+6. **全局碰撞**：所有人都移动完后推挤 → HitDef → 投射物；受击 CNS 从下一帧开始
+7. **Trigger 求值**：栈式虚拟机执行编译后的 OpCode，OC_command 检查 curbuftime
+8. **SC 执行**：trigger 为 true 时执行 State Controller，ChangeState 触发状态切换
 
 **核心洞察**：`command = "X"` 触发器的本质就是检查 `curbuftime > 0`——命令匹配成功后设置的缓冲计数器。
