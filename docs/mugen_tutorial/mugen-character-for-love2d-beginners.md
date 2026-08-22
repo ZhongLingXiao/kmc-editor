@@ -989,8 +989,8 @@ return CharacterLoader
 ---@field events table[]?       帧事件表（可选）
 ---@field onEnter fun(player: Player)?    进入状态回调
 ---@field onExit fun(player: Player)?     退出状态回调
----@field onFrame fun(player: Player, frame: integer, buf: InputBuffer)?   输入响应（-1层）
----@field onUpdate fun(player: Player, dt: number)?  状态推进
+---@field onInput fun(player: Player, frame: integer, buf: InputBuffer)?   输入响应（-1层，玩家按键）
+---@field onTick fun(player: Player, dt: number)?  状态推进（当前状态层，内部时钟）
 
 ---@class CharData 角色静态数据（CharacterLoader.load 返回）
 ---@field info CharInfo                           角色基本信息
@@ -1375,9 +1375,9 @@ end
 function State:onExit(player)
 end
 
--- 当前状态的逻辑（对应 [State N, ...] sctrl 块）
--- 每帧调用，在 -1 层之后、updateState 里
-function State:onFrame(player, frame, buf)
+-- 输入响应（-1 层）：玩家按键驱动。每帧最先跑，有 buf。
+-- 这里 setState 后，本帧不再跑 onTick（取消能抢在收招前面）
+function State:onInput(player, frame, buf)
     -- 按住前：设速度 + 切行走状态
     if buf:held("fwd") then
         player.vx = player.config.walk_fwd
@@ -1396,14 +1396,23 @@ function State:onFrame(player, frame, buf)
     end
 end
 
--- 状态推进（每帧调用，推进帧数、检测结束）
-function State:onUpdate(player, dt)
-    -- 站立状态不会自动结束（循环 idle 动画）
-    -- 攻击状态会在这里检测 total_frames 到了就切回站立
+-- 状态推进（当前状态层）：内部时钟驱动。在 onInput 之后跑，无 buf。
+-- 站立不会自动结束（循环 idle）；攻击会在这里检测动画结束再回站立
+function State:onTick(player, dt)
 end
 
 return State
 ```
+
+四个回调各管一件事：
+
+| 回调 | 谁驱动 | 何时跑 |
+|---|---|---|
+| `onEnter` / `onExit` | 切状态的瞬间 | 各一次 |
+| `onInput` | **外面**：玩家按了什么 | 每帧最先（-1 层），有 `buf`。这里 `setState` 后本帧不再跑 `onTick` |
+| `onTick` | **里面**：时间到了、动画完了 | 每帧、`onInput` 之后。无 `buf` |
+
+问自己：这件事是「玩家按了」才发生，还是「待着不动也会发生」？前者写 `onInput`，后者写 `onTick`。
 
 ### 2.9 完整的状态定义：站立 + 行走 + 跳跃
 
@@ -1424,7 +1433,7 @@ function State:onEnter(player)
     player.vy = 0
 end
 
-function State:onFrame(player, frame, buf)
+function State:onInput(player, frame, buf)
     if buf:held("fwd") or buf:held("back") then
         player:setState(20)  -- 行走
         return
@@ -1453,10 +1462,10 @@ State.anim      = "walk"
 State.ctrl      = true
 
 function State:onEnter(player)
-    -- 不清速度，onFrame 里根据方向设
+    -- 不清速度，onInput 里根据方向设
 end
 
-function State:onFrame(player, frame, buf)
+function State:onInput(player, frame, buf)
     local dir = 0
     if buf:held("fwd") then dir = dir + 1 end
     if buf:held("back") then dir = dir - 1 end
@@ -1500,7 +1509,7 @@ function State:onEnter(player)
     player.vy = player.config.jump_y   -- 跳跃初速度（负=向上）
 end
 
-function State:onFrame(player, frame, buf)
+function State:onInput(player, frame, buf)
     -- 空中可以左右微调
     if buf:held("fwd") then
         player.vx = player.config.walk_fwd * 0.8
@@ -1535,7 +1544,7 @@ function State:onEnter(player)
     player.vy = 0
 end
 
-function State:onFrame(player, frame, buf)
+function State:onInput(player, frame, buf)
     -- 落地硬直结束后回站立
     if frame >= State.total_frames then
         player:setState(0)
@@ -1615,17 +1624,18 @@ function Player:update(dt, buf, in_hitstop)
     -- 物理
     self:updatePhysics(dt)
 
-    -- -1: 输入处理（trigger entry，附录 F）
-    -- onFrame 总是调用，ctrl 不是"开关输入"（§3.9 详讲）
+    -- -1: 先听按键（onInput + trigger entry，附录 F）
+    -- onInput 总是调用，ctrl 不是"开关输入"（§3.9 详讲）
     -- ctrl 只影响 trigger entry 里带 T.ctrl 条件的 entry
-    self.state:onFrame(self, self.state_time, buf)
+    -- 这里 setState 后立刻 return，本帧不跑 onTick（取消抢在收招前面）
+    self.state:onInput(self, self.state_time, buf)
 
     if self.state_changed then return end
 
-    -- 当前状态推进
+    -- 当前状态：先推进时间，再 onTick（动画结束、按帧减速）
     self.state_time = self.state_time + 1
-    if self.state.onUpdate then
-        self.state:onUpdate(self, dt)
+    if self.state.onTick then
+        self.state:onTick(self, dt)
     end
 
     -- 动画推进
@@ -1799,7 +1809,7 @@ function State:onEnter(player)
     player:ctrlSet(false)
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- 对应 MUGEN 的 ChangeState
     if player.anim_finished then
         player:setState(0)  -- 回站立
@@ -1873,7 +1883,7 @@ value = 20
 
 ```lua
 -- Love2D
-function State:onFrame(player, frame, buf)
+function State:onInput(player, frame, buf)
     if buf:held("fwd") then
         player:setState(20)   -- ChangeState
     end
@@ -2034,7 +2044,7 @@ player:changeAnim("attack_1")    -- 切到动画 id="attack_1"
 
 ```lua
 -- 同一状态中途换动画
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     if player.state_time == 10 then
         player:changeAnim("attack_1_recovery")  -- 切收招动画
     end
@@ -2074,7 +2084,7 @@ ctrl = false：角色受限（攻击中、被击中、硬直中）
     ✅ 攻击取消（只看 stateno + movecontact，不看 ctrl）
     ✅ Roman Cancel（甚至要求 !ctrl 才能用）
     ✅ 被击状态切换（由系统强制，不看 ctrl）
-  - onFrame 照常调用，状态自己可以检测输入
+  - onInput 照常调用，状态自己可以检测输入
 ```
 
 **关键**：ctrl=false **不是**"关闭输入"。输入系统照常读、命令匹配照常跑、trigger entry 照常检查。ctrl 只是 trigger 里的一个条件，决定"需要自由状态才能出的招"能不能出。
@@ -2108,7 +2118,7 @@ function State:onEnter(player)
     player:ctrlSet(false)    -- 攻击中关控制权（不能从这状态按方向走路）
 end
 
-function State:onFrame(player, frame, buf)
+function State:onInput(player, frame, buf)
     -- 第 8-15 帧是取消窗口
     -- 注意：不需要 ctrlSet(true)，取消不看 ctrl
     if frame >= 8 and frame <= 15 then
@@ -2118,7 +2128,7 @@ function State:onFrame(player, frame, buf)
     end
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     if player.anim_finished then
         player:setState(0)   -- 动画结束回站立（setState 内部会设 ctrl=true）
     end
@@ -2284,8 +2294,8 @@ function State:onEnter(player)
     player.jc_count = 0
 end
 
--- states/40.lua（跳跃）：在 onFrame 里检测 JC 条件
-function State:onFrame(player, frame, buf)
+-- states/40.lua（跳跃）：在 onInput 里检测 JC 条件
+function State:onInput(player, frame, buf)
     -- JC 检测：脚下有敌人 + 按跳跃
     -- enemyBelow() 的实现在第七章碰撞检测讲
     if player:enemyBelow() and buf:justPressed("jump") then
@@ -2328,7 +2338,7 @@ end
 
 ```lua
 -- 蓄力状态：每帧加蓄力时间
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     player.charge_time = (player.charge_time or 0) + 1
     -- 蓄满 30 帧可以释放
     if player.charge_time >= 30 then
@@ -2337,7 +2347,7 @@ function State:onUpdate(player, dt)
 end
 
 -- 释放时检查是否蓄满
-function State:onFrame(player, frame, buf)
+function State:onInput(player, frame, buf)
     if not buf:held("attack") then
         if player.charge_ready then
             player:setState(300)  -- 蓄力释放
@@ -2364,7 +2374,7 @@ function State:onEnter(player)
     player.attack_phase = "startup"   -- 起手阶段
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- 根据状态时间标记阶段（判定帧在第5-10帧）
     if player.state_time == 5 then
         player.attack_phase = "active"    -- 判定帧开始（hitbox 生效）
@@ -2373,8 +2383,8 @@ function State:onUpdate(player, dt)
     end
 end
 
--- onFrame 里根据阶段决定能否取消
-function State:onFrame(player, frame, buf)
+-- onInput 里根据阶段决定能否取消
+function State:onInput(player, frame, buf)
     -- 收招阶段可以取消（取消窗口）
     if player.attack_phase == "recovery" and buf:justPressed("attack") then
         player:setState(201)  -- 切下一段攻击
@@ -2645,7 +2655,7 @@ function State:onEnter(player)
     player.combo_count = player.combo_count + 1  -- 连击数 +1（直接用命名字段）
 end
 
-function State:onFrame(player, frame, buf)
+function State:onInput(player, frame, buf)
     -- 第 8-15 帧是取消窗口
     -- 注意：不需要 ctrlSet(true)，取消不看 ctrl（§3.9 讲过）
     if frame >= 8 and frame <= 15 then
@@ -2654,7 +2664,7 @@ function State:onFrame(player, frame, buf)
     end
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- 动画结束 → 切回站立
     if player.anim_finished then
         player:setState(0)           -- ChangeState：回站立（setState 内部设 ctrl=true）
@@ -2962,8 +2972,8 @@ triggerall = {
 #### time（状态时间）
 
 ```lua
--- 内联：直接用 state_time 或 onFrame 的 frame 参数
-function State:onFrame(player, frame, buf)
+-- 内联：直接用 state_time 或 onInput 的 frame 参数
+function State:onInput(player, frame, buf)
     if frame >= 8 and frame <= 15 then  -- time = [8, 15]
         -- 可取消窗口
     end
@@ -3453,13 +3463,13 @@ end
 
 #### setState 后的一帧执行顺序
 
-setState 通常在 Player:update 的 -1 层或 onUpdate 里调用。setState 之后的本帧剩余流程：
+setState 通常在 Player:update 的 -1 层或 onTick 里调用。setState 之后的本帧剩余流程：
 
 ```
 Player:update(dt, buf):
-  1. updateControl (-1)        ← onFrame + cancel_windows（可能在这里 setState）
+  1. updateControl (-1)        ← onInput + cancel_windows（可能在这里 setState）
   2. updateState()             ← 当前状态逻辑
-       a. state:onUpdate(dt)    ← 状态逻辑（也可能在这里 setState）
+       a. state:onTick(dt)    ← 状态逻辑（也可能在这里 setState）
        b. updateAnim()          ← ★ 动画推进（在状态逻辑之后）
        c. 检查 anim_finished    ← 非循环动画播完 → setState(0)
   3. state_time++              ← 推进状态时间
@@ -3469,13 +3479,13 @@ Player:update(dt, buf):
 
 ```lua
 function Player:update(dt, buf)
-    -- 1. -1 层（onFrame + cancel_windows）
+    -- 1. -1 层（onInput + cancel_windows）
     self:updateControl(buf)
 
     -- 2. 当前状态逻辑
     self.state_time = self.state_time + 1
-    if self.state.onUpdate then self.state:onUpdate(self, dt) end
-    -- ★ onUpdate 里可能 setState（如攻击结束回 idle）
+    if self.state.onTick then self.state:onTick(self, dt) end
+    -- ★ onTick 里可能 setState（如攻击结束回 idle）
 
     -- 3. 动画推进（setState 后才推进）
     self:updateAnim()      -- ★ 在状态逻辑之后，避免本帧切了 state 又推进
@@ -3519,7 +3529,7 @@ end
 
 非循环动画（attack_1, jump）：
   帧1 → 帧2 → 帧3 → 停在帧3，anim_finished = true
-  状态的 onUpdate 检查 anim_finished → 切回站立
+  状态的 onTick 检查 anim_finished → 切回站立
 ```
 
 ### 5.6 animelemtime 和 animtime 的实现
@@ -3753,11 +3763,11 @@ MUGEN 是 1999 年的引擎，为 2D 格斗游戏设计。格斗游戏：
 - 第 5 帧：从剑尖发射幻影剑
 - 第 7 帧：攻击框消失
 
-#### 方式 1：在状态的 onUpdate 里用 animElemTime 判断
+#### 方式 1：在状态的 onTick 里用 animElemTime 判断
 
 ```lua
 -- states/200.lua：攻击1
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     local elem = player.anim_frame  -- 当前帧索引
 
     -- 第2帧：产生攻击框
@@ -3782,7 +3792,7 @@ end
 #### 方式 2：用 state_time 判断
 
 ```lua
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- state_time 从 0 开始，每帧 +1
     if player.state_time == 4 then
         playSound("slash_swing")
@@ -3821,7 +3831,7 @@ State.events = {
     { frame = 7, action = "hitbox_off" }, -- hitbox 消失
 }
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     for _, event in ipairs(State.events) do
         if player:animElemTime(event.frame) == 0 then
             State:fireEvent(player, event)
@@ -3844,7 +3854,7 @@ function State:fireEvent(player, event)
 end
 ```
 
-数据驱动的好处：事件列表一目了然，不用在 onUpdate 里写一堆 if。
+数据驱动的好处：事件列表一目了然，不用在 onTick 里写一堆 if。
 
 ### 5.8 hitbox 的生效时机
 
@@ -4023,7 +4033,7 @@ attack_1 播到第2帧 → 玩家按攻击 → 取消窗口打开 → setState(2
 #### 场景 2：攻击结束回站立
 
 ```
-attack_1 播完 → anim_finished=true → onUpdate 检测到 → setState(0)
+attack_1 播完 → anim_finished=true → onTick 检测到 → setState(0)
 → changeAnim("idle") → idle 从第1帧开始循环
 ```
 
@@ -4257,7 +4267,7 @@ function State:onEnter(player)
     player.hitbox_active = false
 end
 
-function State:onFrame(player, frame, buf)
+function State:onInput(player, frame, buf)
     -- 第 3-5 帧是取消窗口（取消不看 ctrl，§3.9 讲过）
     if player:animElemTime(3) >= 0 and player:animElemTime(5) < 0 then
         -- trigger entry 里的取消条件会在这区间检查
@@ -4265,7 +4275,7 @@ function State:onFrame(player, frame, buf)
     end
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- 触发帧事件
     for _, event in ipairs(State.events) do
         if player:animElemTime(event.elem) == 0 then

@@ -107,8 +107,8 @@ end
 |---|---|---|---|
 | **locomotion 停步** | Physics=S 摩擦力 | `stand.friction=.85` | ~~摩擦力~~ 改用 move_x（§6.6） |
 | **被击击退减速** | 每帧 VelMul x=.8 | `11754: VelMul x=.8` | Physics=S + moveType=H，摩擦力 0.7 |
-| **攻击前冲减速** | 特定帧 VelMul x=.15 | `5719: VelMul x=.15` | onUpdate 里调 velMul(0.15, 1) |
-| **空中攻击水平减速** | VelMul x=.6 | `6239: VelMul x=.6` | onUpdate 里调 velMul（状态主动调，不是摩擦力） |
+| **攻击前冲减速** | 特定帧 VelMul x=.15 | `5719: VelMul x=.15` | onTick 里调 velMul(0.15, 1) |
+| **空中攻击水平减速** | VelMul x=.6 | `6239: VelMul x=.6` | onTick 里调 velMul（状态主动调，不是摩擦力） |
 | **落地后水平减速** | Physics=S 摩擦力 | `stand.friction=.85` | Physics=S + moveType=I，摩擦力 0.8 |
 
 MUGEN 的摩擦力常量（Vergil.cns:57-60）：
@@ -152,7 +152,7 @@ function State:onEnter(player)
     player:velSet(0, 0)
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     if player.state_time >= State.total_frames then
         player:setState(0)  -- 回站立
     end
@@ -252,7 +252,7 @@ end
 
 ```lua
 -- 空中攻击状态：覆盖落地行为
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     if player.y >= player.groundY then
         player:setState(450)  -- 攻击落地状态（不是普通 50）
     end
@@ -292,7 +292,7 @@ function State:onEnter(player)
     end
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- move_x 驱动位移（起步动画的 move_x 从小到大，自然加速）
     local frame = player.anim.elements[player.anim_frame]
     if frame.move_x ~= nil then
@@ -327,7 +327,7 @@ State.moveType  = "I"
 State.anim      = "walk"
 State.ctrl      = true
 
-function State:onFrame(player, frame, buf)
+function State:onInput(player, frame, buf)
     local dir = 0
     if buf:held("fwd") then dir = dir + 1 end
     if buf:held("back") then dir = dir - 1 end
@@ -352,7 +352,7 @@ function State:onFrame(player, frame, buf)
     if buf:justPressed("jump") then player:setState(40) return end
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- move_x 驱动位移（防滑步，详见 §6.6）
     local frame = player.anim.elements[player.anim_frame]
     if frame.move_x ~= nil then
@@ -378,7 +378,7 @@ State.moveType  = "I"
 State.anim      = "run"
 State.ctrl      = true
 
-function State:onFrame(player, frame, buf)
+function State:onInput(player, frame, buf)
     local dir = 0
     if buf:held("fwd") then dir = dir + 1 end
     if buf:held("back") then dir = dir - 1 end
@@ -400,7 +400,7 @@ function State:onFrame(player, frame, buf)
     else player.facing = -1 end
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- move_x 驱动位移
     local frame = player.anim.elements[player.anim_frame]
     if frame.move_x ~= nil then
@@ -433,7 +433,7 @@ function State:onEnter(player)
     end
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- move_x 驱动位移（停步动画的 move_x 从大到小，自然减速到 0）
     local frame = player.anim.elements[player.anim_frame]
     if frame.move_x ~= nil then
@@ -580,7 +580,7 @@ end
 move_x 是可选字段。没设时回退到固定速度：
 
 ```lua
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     local frame = player.anim.elements[player.anim_frame]
     if frame.move_x ~= nil then
         -- 动画驱动位移（精确，不滑步）
@@ -695,7 +695,7 @@ locomotion 不应该瞬间达到最大速度——有加速段和减速段。**�
 
 ```lua
 -- 跳跃状态：空中水平微调用 approach（不是 locomotion，不用 move_x）
-function State:onFrame(player, frame, buf)
+function State:onInput(player, frame, buf)
     if buf:held("fwd") then
         player.vx = approach(player.vx, player.config.walk_fwd * 0.8, 0.3)
     end
@@ -749,7 +749,7 @@ function State:onEnter(player)
     player.airjump_count = 0          -- 重置空中跳跃次数
 end
 
-function State:onFrame(player, frame, buf)
+function State:onInput(player, frame, buf)
     -- 空中可以左右微调
     if buf:held("fwd") then
         player.vx = approach(player.vx, player.config.walk_fwd * 0.8, 0.3)
@@ -882,7 +882,7 @@ end
 马里奥更进一步：**按住跳跃键时重力小，松开时重力大**（可变跳跃高度）：
 
 ```lua
-function State:onFrame(player, frame, buf)
+function State:onInput(player, frame, buf)
     -- 松开跳跃键时上升快速减速（短跳）
     if player.vy < 0 and not buf:held("jump") then
         player.vy = player.vy + player.config.gravity * 1.5
@@ -956,7 +956,7 @@ function Player:updatePhysics(dt)
         self.y = self.y + self.vy
 
     elseif phys == "N" then
-        -- 无物理：y 固定地面，x 由 move_x 在状态 onUpdate 里更新
+        -- 无物理：y 固定地面，x 由 move_x 在状态 onTick 里更新
         self.y = self.groundY
         -- 不用 vx 更新位置（locomotion 用 move_x 驱动，§6.6）
     end
@@ -1125,7 +1125,7 @@ velset = 0,0      ; ← 清零速度，惯性丢失
 
 ```lua
 -- 空中攻击：收招帧开始减速水平速度
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     if player.state_time >= 10 then
         player:velMul(0.85, 1)  -- vx *= 0.85（状态主动调，不是摩擦力）
     end
@@ -1136,7 +1136,7 @@ end
 
 | | 摩擦力 | 空中 VelMul |
 |---|---|---|
-| 谁加的 | 引擎自动（Physics=S） | 状态主动调（onUpdate 里） |
+| 谁加的 | 引擎自动（Physics=S） | 状态主动调（onTick 里） |
 | 在哪 | 地面 | 空中 |
 | 触发 | 每帧自动 | 特定帧（如 time >= 10） |
 | 目的 | 自然减速到停 | 控制空中减速节奏 |
@@ -1218,7 +1218,7 @@ State.moveType = "A"  -- 不受摩擦力
 function State:onEnter(player)
     player:velSet(8.0 * player.facing, 0)
 end
--- onUpdate 不减速，速度保持 8.0
+-- onTick 不减速，速度保持 8.0
 -- 动画播完 → 切下一个状态（vx 带入，惯性延续）
 ```
 
@@ -1239,7 +1239,7 @@ function State:onEnter(player)
     player:velSet(8.0 * player.facing, 0)
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- 前 10 帧不做任何操作，速度保持 8.0
     if player.state_time >= 10 then
         player:velMul(0.85, 1)  -- 第10帧开始减速
@@ -1276,7 +1276,7 @@ function State:onEnter(player)
     player:velSet(10.0 * player.facing, 0)
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     player:velMul(0.9, 1)  -- 从第0帧开始每帧减速 10%
 end
 ```
@@ -1284,7 +1284,7 @@ end
 **设计 4：加速 → 匀速 → 减速（完整曲线）**
 
 ```lua
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     if player.state_time < 5 then
         player:velAdd(1.0 * player.facing, 0)    -- 加速段
     elseif player.state_time < 20 then
@@ -1312,7 +1312,7 @@ end
 **方式 1：VelMul 手动控制（推荐，精确）**
 
 ```lua
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     if player.state_time >= 10 then
         player:velMul(0.85, 1)  -- 第10帧后手动减速
     end
@@ -1327,7 +1327,7 @@ end
 ```lua
 State.moveType = "A"  -- 前10帧不受摩擦力
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     if player.state_time == 10 then
         player.state.moveType = "I"  -- 切 moveType，摩擦力开始作用
     end
@@ -1340,7 +1340,7 @@ end
 
 | 技能 | 减速设计 | 代码 |
 |---|---|---|
-| 瞬闪 | 不减速（匀速到底） | onUpdate 不做操作 |
+| 瞬闪 | 不减速（匀速到底） | onTick 不做操作 |
 | 冲刺斩 | 第10帧快速减速 | `if t>=10 then velMul(0.15,1) end` |
 | 重击位移 | 第5帧缓慢减速 | `if t>=5 then velMul(0.85,1) end` |
 
@@ -1357,7 +1357,7 @@ function Player:delayedDecel(delay, mul)
 end
 
 -- 用法
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     player:delayedDecel(10, 0.85)  -- 前10帧匀速，之后每帧 *0.85
 end
 ```
@@ -1505,7 +1505,7 @@ return Physics
 
 **关键区分**：
 - **摩擦力**：引擎自动减速（Physics=S + moveType=I/H），用于被击击退、落地后
-- **VelMul**：状态主动减速（onUpdate 里调），用于冲刺、空中攻击收招
+- **VelMul**：状态主动减速（onTick 里调），用于冲刺、空中攻击收招
 - **move_x**：动画驱动位移（Physics=N），用于 locomotion
 
 三种机制不冲突，各管各的场景。
@@ -1561,7 +1561,7 @@ target.vx = hitdef.ground_velocity * -direction  -- 如 -5
 ```lua
 -- 被击状态用 Physics=N + move_x（和 locomotion 一样防滑步）
 State.physics = "N"
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     local frame = player.anim.elements[player.anim_frame]
     if frame.move_x then
         player.x = player.x + frame.move_x * player.facing
@@ -2450,7 +2450,7 @@ function love.update(dt)
         -- update 内部：
         --   1. 动画推进（更新当前帧的碰撞框）
         --   2. 物理更新（更新位置）
-        --   3. 状态推进（onFrame/onUpdate）
+        --   3. 状态推进（onInput/onTick）
     end
 
     -- ★ 碰撞检测（所有角色 update 完后）
@@ -2979,7 +2979,7 @@ function State:onEnter(player)
     -- hit_velocity 在命中系统里设好了，这里不用管
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- move_x 驱动击退位移（被击动画的 move_x 从大到小）
     local frame = player.anim.elements[player.anim_frame]
     if frame.move_x then
@@ -3011,7 +3011,7 @@ function State:onEnter(player)
     player:velSet(hv.x * -player.facing, hv.y)
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- 落地检测
     if player.y >= player.groundY then
         player:setState(5080)  -- 切到倒地状态
@@ -3031,7 +3031,7 @@ State.moveType  = "H"
 State.anim      = "liedown"
 State.ctrl      = false
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- 躺倒硬直结束 → 起身
     if player.state_time >= player.config.liedown_time then
         player:setState(5120)  -- 起身
@@ -3099,7 +3099,7 @@ State.moveType  = "H"
 State.anim      = "liedown_hit"  -- ★ 躺着受击动画
 State.ctrl      = false
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- 受击动画播完 → 回躺倒
     if player.anim_finished then
         player:setState(5110)
@@ -3134,7 +3134,7 @@ return State
 ```lua
 -- 地面被击(5000)：Physics=N + move_x
 State.physics = "N"
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     local frame = player.anim.elements[player.anim_frame]
     if frame.move_x then
         player.x = player.x + frame.move_x * player.facing
@@ -4295,7 +4295,7 @@ end
 
 #### Helper 是什么
 
-Helper 是**有自己状态机的独立实体**。比 Projectile 复杂——Projectile 只有移动+碰撞，Helper 有完整的状态机（onEnter/onFrame/onUpdate）、动画、碰撞框，能做复杂行为。
+Helper 是**有自己状态机的独立实体**。比 Projectile 复杂——Projectile 只有移动+碰撞，Helper 有完整的状态机（onEnter/onInput/onTick）、动画、碰撞框，能做复杂行为。
 
 #### Helper vs Projectile 的区别
 
@@ -4365,7 +4365,7 @@ end
 
 #### Helper 的状态机
 
-Helper 有自己的状态定义（和角色一样用 onEnter/onFrame/onUpdate）：
+Helper 有自己的状态定义（和角色一样用 onEnter/onInput/onTick）：
 
 ```lua
 -- HelperDB：幻影剑的定义
@@ -4387,7 +4387,7 @@ HelperDB = {
                     h.hitbox_active = false
                     h.follow_owner = true  -- 跟着主人移动
                 end,
-                onUpdate = function(h, dt)
+                onTick = function(h, dt)
                     -- 位置由动画帧的 offset 驱动（不用数学旋转）
                     -- 动画的每帧画好了剑围绕一圈的各个角度：
                     --   帧0: 正前方（sprite=sword_front, offset=前方）
@@ -4399,7 +4399,7 @@ HelperDB = {
                     h.x = h.owner.x
                     h.y = h.owner.y
                 end,
-                onFrame = function(h, frame, buf)
+                onInput = function(h, frame, buf)
                     -- 主人攻击时 → 切攻击状态
                     if h.owner.hitbox_active then
                         h:setState(1)
@@ -4420,7 +4420,7 @@ HelperDB = {
                         ground_hit_state = 5000,
                     }
                 end,
-                onUpdate = function(h, dt)
+                onTick = function(h, dt)
                     h.x = h.owner.x
                     h.y = h.owner.y
                     if h.anim_finished then
@@ -4435,7 +4435,7 @@ HelperDB = {
                 onEnter = function(h)
                     h.hitbox_active = false
                 end,
-                onUpdate = function(h, dt)
+                onTick = function(h, dt)
                     if h.anim_finished then
                         h.finished = true
                     end
@@ -5035,7 +5035,7 @@ function State:onExit(player)
     player.hitbox_active = false
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- 动画播完 → 回站立
     if player.anim_finished then
         player:setState(0)
@@ -5099,7 +5099,7 @@ function State:onEnter(player)
     player.rage_count = 0
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     if player.anim_finished then
         player:setState(0)
     end
@@ -5182,7 +5182,7 @@ function State:onEnter(player)
     player.parry_targets = {}     -- 已弹反的目标
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- 检测：自己的 hitbox（格挡框）vs 敌人的 hitbox（攻击框）
     for _, enemy in ipairs(players) do
         if enemy ~= player and enemy.hitbox_active then
@@ -5672,7 +5672,7 @@ Love2D 里不用 persistent 参数，直接在状态代码里用计时器控制�
 
 ```lua
 -- MUGEN persistent = 5 的等价写法
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- 用计时器控制触发频率
     if (player.state_time % 5) == 0 then
         player.life = player.life + 1   -- 每5帧加1血
@@ -5687,7 +5687,7 @@ function State:onEnter(player)
     player.heal_counter = 0
 end
 
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     player.heal_counter = player.heal_counter + 1
     if player.heal_counter >= 5 then
         player.heal_counter = 0
@@ -5827,7 +5827,7 @@ function State:onEnter(player)
     end
 end
 
-function State:onFrame(player, frame, buf)
+function State:onInput(player, frame, buf)
     -- 空中可以左右微调
     if buf:held("fwd") then
         player.vx = approach(player.vx, player.config.walk_fwd * 0.8, 0.3)
@@ -6365,7 +6365,7 @@ function onSwitchInput(player)
     if Input.justPressed("trigger_r") then
         player.weapon = nextWeapon(player.weapon)
         EventBus:emit("weapon_switch", { player = player, ... })
-        -- ★ 不在这里切 state，让各 state 自己 onUpdate 检测 weapon 变化
+        -- ★ 不在这里切 state，让各 state 自己 onTick 检测 weapon 变化
     end
 end
 ```
@@ -6374,7 +6374,7 @@ end
 
 ```lua
 -- states/21_yamato_run.lua（locomotion 状态：检测 weapon 变化，切到对应武器 state）
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- 跑步逻辑...
 
     -- ★ 检测武器变化：如果 weapon 变了，切到对应武器的 run state + 相位同步
@@ -6392,7 +6392,7 @@ function State:onUpdate(player, dt)
 end
 
 -- states/200_yamato_a_1.lua（攻击状态：不检测 weapon 变化，继续播）
-function State:onUpdate(player, dt)
+function State:onTick(player, dt)
     -- 攻击逻辑...
     -- ★ 不检测 weapon 变化，继续播 yamato_a_1
     -- 攻击结束后回 idle，自然切到新武器 idle
@@ -6466,7 +6466,7 @@ DT取消(100) > 踩怪JC(95) > 取消窗口(50-80) > 二段跳(50) > ...
 | 皇家护卫 | 格挡/释放 | HitOverride + ReversalDef（§10.2） |
 
 ```lua
-function State:onFrame(player, frame, buf)
+function State:onInput(player, frame, buf)
     -- 风格键根据当前风格执行不同行为
     if buf:justPressed("style") then
         if player.style == "trickster" then

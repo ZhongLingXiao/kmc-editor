@@ -79,7 +79,7 @@
 │         │                                                     │
 │         ▼                                                     │
 │  7. Player.update(player, dt, buf)                            │
-│       a. on_frame(player, frame, buf)  ← 状态内输入检测        │
+│       a. onInput(player, frame, buf)  ← 状态内输入检测        │
 │       b. cancel_windows 查 Command      ← 状态切换命令         │
 │       c. 推进状态帧数                                         │
 │         │                                                     │
@@ -100,7 +100,7 @@
 ### 关键规则
 
 1. **每层只读相邻下层，不跨层。** 状态机不直接碰 Input，即时命令不直接碰 Buffer。
-2. **`on_frame` 读 Buffer**（不是 Input）—— Buffer 提供边沿检测（`justReleased`），且经过 SOCD 解决。
+2. **`onInput` 读 Buffer**（不是 Input）—— Buffer 提供边沿检测（`justReleased`），且经过 SOCD 解决。
 3. **`cancel_windows` 读 Command**（不是 Buffer）—— 命令匹配是 Command 的事。
 4. **即时命令读 Command** 的 `cur_buffer_time` 边沿。
 
@@ -261,7 +261,7 @@ end
 
 ```lua
 -- 剑阵是 Helper（有状态机的独立实体），不是 Player 属性
--- 创建时 follow_owner = true，onUpdate 里 h.x = h.owner.x 跟随角色
+-- 创建时 follow_owner = true，onTick 里 h.x = h.owner.x 跟随角色
 EntityManager.spawnHelper("spiral_sword", player.x, player.y, player.facing, player)
 ```
 
@@ -299,7 +299,7 @@ local states = {
         cancel_windows = {           -- 常量
             {start = 8, finish = 15, allowed = {"slash"}},
         },
-        on_frame = function(player, frame, buf) ... end,  -- 逻辑
+        onInput = function(player, frame, buf) ... end,  -- 逻辑
     },
 }
 -- player1 和 player2 都用 states.attack_1 的定义
@@ -315,7 +315,7 @@ MUGEN 角色每帧按 `-4 → -3 → -2 → -1 → 当前状态` 顺序执行。
 | **-4** | `updateAlways` | 全局帧计数器、调试逻辑；本文里 hitstop 时也跑 | 极少用。特权：**Pause/SuperPause 冻结时也跑**（hitpause 下它的 sctrl 仍要 `ignorehitpause=1` 才跑） |
 | **-3** | `updateGlobal` | 全局前置（朝向、锁定目标、物理） | **状态属于自己**时每帧跑（被 custom state 控制时不跑）；角色作者常放音效、落地特效、角推（corner push） |
 | **-2** | `updateFlags` | 标志/变量更新（蓄力、红刀、计时器） | **无条件**每帧跑（被 custom state 控制时也跑）；常放变量、常驻 helper、规则检测 |
-| **-1** | `updateControl` | on_frame + cancel_windows + 即时命令 + ChangeState | **keyctrl 且状态属于自己**时跑；命令消费 + ChangeState |
+| **-1** | `updateControl` | onInput + cancel_windows + 即时命令 + ChangeState | **keyctrl 且状态属于自己**时跑；命令消费 + ChangeState |
 | **当前状态** | `updateState` | 推进帧数 + 状态结束 | **先跑 sctrl**，之后引擎才做物理（`posUpdate`）并推进 `ss.time` |
 
 > ⚠ 两点别搞混：
@@ -401,9 +401,9 @@ end
 function Player:updateControl(dt, buf)
     local state = states[self.state]
 
-    -- 先调 on_frame（状态内输入检测，如红刀）
-    if state.on_frame then
-        state.on_frame(self, self.frame, buf)
+    -- 先调 onInput（状态内输入检测，如红刀）
+    if state.onInput then
+        state.onInput(self, self.frame, buf)
         if self.state ~= state.name then
             self.state_changed = true
             return
@@ -617,20 +617,20 @@ trigger1 = var(0) = 1            ; 且满足某个变量条件
 | MUGEN -1 里的东西 | Love2D 代码 | 说明 |
 |---|---|---|
 | 用法 A（通用取消：ChangeState + command + statetype + ctrl） | `updateInstantCommands` + 通用命令检测 | 任何状态都能触发的切状态/即时效果 |
-| 用法 B（状态内取消：ChangeState + stateno + time） | `on_frame` + `cancel_windows` | 只在当前状态的特定帧窗口生效 |
+| 用法 B（状态内取消：ChangeState + stateno + time） | `onInput` + `cancel_windows` | 只在当前状态的特定帧窗口生效 |
 | `trigger1` / `trigger2` 条件组合 | `if` 判断 + `cancel_windows` 数据 | MUGEN 用 trigger，Love2D 用 if |
 
-`on_frame` 和 `cancel_windows` 都是"状态内取消"，都放在 `updateControl`（-1）里，只是表达方式不同：
+`onInput` 和 `cancel_windows` 都是"状态内取消"，都放在 `updateControl`（-1）里，只是表达方式不同：
 
 - `cancel_windows`：数据驱动，`{start=8, finish=15, allowed={"slash"}}` 表示"第 8-15 帧按 slash 可以取消"。规整，适合简单帧窗口。
-- `on_frame`：代码驱动，`function(player, frame, buf) ... end`。灵活，能写任意复杂逻辑（多段取消、按方向键不同取消、基于变量取消等）。
+- `onInput`：代码驱动，`function(player, frame, buf) ... end`。灵活，能写任意复杂逻辑（多段取消、按方向键不同取消、基于变量取消等）。
 
-**6. 为什么 on_frame 必须在 -1 里，不能放在当前状态（updateState）里？**
+**6. 为什么 onInput 必须在 -1 里，不能放在当前状态（updateState）里？**
 
 因为 -1 在当前状态**之前**执行。看执行顺序：
 
 ```
--1 updateControl:  on_frame / cancel_windows 检测  →  可能 ChangeState
+-1 updateControl:  onInput / cancel_windows 检测  →  可能 ChangeState
 当前状态 updateState: 推进 frame、检查 total_frames、状态结束
 ```
 
@@ -3539,7 +3539,7 @@ cancel_windows 的本质是"切换到新状态"，而即时命令要的是"不�
 - **完美次元斩**：维吉尔在次元斩蓄力状态的第 10-12 帧松开特殊键 → 触发完美版本
 - **尼禄红刀（Exceed）**：尼禄在攻击状态的第 5-8 帧按 Exceed 键 → 下一击带火
 
-这些不是"搓招"（多按键序列），而是"角色处于某个状态时，在精确时间窗口内按一个键"。它们**不走命令系统**，走状态机的 `on_frame` 函数。
+这些不是"搓招"（多按键序列），而是"角色处于某个状态时，在精确时间窗口内按一个键"。它们**不走命令系统**，走状态机的 `onInput` 函数。
 
 #### 状态 vs 标志：蓄力为什么是标志
 
@@ -3613,8 +3613,8 @@ function Player.update(player, dt, buf)
     -- ★ 2. 正常的状态机逻辑（stand/run/jump/attack）
     -- 蓄力标志不影响状态切换，角色可以边跑边蓄力
     local state = states[player.state]
-    if state.on_frame then
-        state.on_frame(player, player.frame, buf)
+    if state.onInput then
+        state.onInput(player, player.frame, buf)
     end
     -- ... cancel_windows 等 ...
 end
@@ -3661,7 +3661,7 @@ end
 ```lua
 -- ❌ 用 justReleased：只在松开那一帧 true
 if buf:justReleased("attack") then
-    -- 如果这一帧 on_frame 没跑到（比如状态刚切换），就错过了
+    -- 如果这一帧 onInput 没跑到（比如状态刚切换），就错过了
     -- 而且 justReleased 那一帧 buffer == -1，无法查 heldFrames
 end
 
@@ -3743,7 +3743,7 @@ MUGEN 用 `var(50)` 做蓄力标志，`var(51)` 做蓄力计时。`command != "h
 local states = {
     attack_1 = {
         total_frames = 30,
-        on_frame = function(player, frame, buf)
+        onInput = function(player, frame, buf)
             -- Exceed 窗口：第 5-8 帧
             if frame >= 5 and frame <= 8 then
                 -- 读 buf（Buffer 层），不读 Input
@@ -3780,20 +3780,20 @@ local states = {
 - 蓄力标志：叠加在 stand/run/jump 上，角色能移动
 - 红刀标志：叠加在 attack 上，下一击带火
 
-#### 状态机需要加 on_frame 支持
+#### 状态机需要加 onInput 支持
 
-`Player.update` 在检查 cancel_windows 之前先调 `on_frame`，让状态内检测能"抢先"触发。注意 `on_frame` 接收 `buf` 参数：
+`Player.update` 在检查 cancel_windows 之前先调 `onInput`，让状态内检测能"抢先"触发。注意 `onInput` 接收 `buf` 参数：
 
 ```lua
 function Player.update(player, dt, buf)
     local state = states[player.state]
 
-    -- 0. 调用状态的 on_frame（状态内输入检测）
+    -- 0. 调用状态的 onInput（状态内输入检测）
     --    在 cancel_windows 之前，让状态内检测能抢先触发
-    --    on_frame 读 buf（Buffer 层），不读 Input
-    if state.on_frame then
-        state.on_frame(player, player.frame, buf)
-        -- on_frame 可能已经 setState，需要检查
+    --    onInput 读 buf（Buffer 层），不读 Input
+    if state.onInput then
+        state.onInput(player, player.frame, buf)
+        -- onInput 可能已经 setState，需要检查
         if player.state ~= states[player.state] then
             return  -- 切了状态，本帧结束
         end
@@ -3826,7 +3826,7 @@ end
 |---|---|---|---|---|
 | **状态切换命令** | 攻击、跳跃、波动拳 | ✅ 走（type=state_change） | ✅ 进新状态 | 状态机（cancel_windows） |
 | **即时动作命令** | 幻影剑、开枪 | ✅ 走（type=instant） | ❌ 不影响 | 状态机前面（updateInstantCommands） |
-| **状态内输入检测** | 完美次元斩、红刀 | ❌ 不走命令系统 | ✅ 影响状态/属性 | 状态机内部（on_frame） |
+| **状态内输入检测** | 完美次元斩、红刀 | ❌ 不走命令系统 | ✅ 影响状态/属性 | 状态机内部（onInput） |
 
 **核心区分**：
 - **状态切换命令**：玩家主动搓招，系统匹配 step 序列，匹配上就进新状态
@@ -3844,11 +3844,11 @@ end
 | 依赖状态 | 不依赖（任何状态都能搓） | **强依赖**（必须在特定状态） |
 | 例子 | 波动拳、升龙拳 | 完美次元斩、红刀 |
 
-用命令系统也能勉强实现（定义一个 `~special` 命令，在 cancel_windows 里查它），但很绕。`on_frame` 直接检测更清晰。
+用命令系统也能勉强实现（定义一个 `~special` 命令，在 cancel_windows 里查它），但很绕。`onInput` 直接检测更清晰。
 
 #### MUGEN CNS 里的对应写法（Vergil.cns 实例）
 
-MUGEN CNS 没有 `on_frame` 函数，它用 **trigger 组合**实现同样的功能——在某个 state 的 State Controller 里，用 `command =` + `time =` 的 trigger 表达"在某个时间窗口内检测输入"。看两个 Vergil.cns 的实际例子：
+MUGEN CNS 没有 `onInput` 函数，它用 **trigger 组合**实现同样的功能——在某个 state 的 State Controller 里，用 `command =` + `time =` 的 trigger 表达"在某个时间窗口内检测输入"。看两个 Vergil.cns 的实际例子：
 
 **例子 1：状态内时间窗口 + 检测"没按某键"（`Vergil.cns:8261`）**
 
@@ -3867,7 +3867,7 @@ value = 951
 对应 Love2D：
 
 ```lua
-on_frame = function(player, frame, buf)
+onInput = function(player, frame, buf)
     if frame >= 14 then  -- 动画第 14 帧后
         -- 没按 b+c 且没按下 → 切到 951
         if not (buf:held("b") and buf:held("c")) and not buf:held("down") then
@@ -3896,7 +3896,7 @@ ignorehitpause = 1
 对应 Love2D：
 
 ```lua
-on_frame = function(player, frame, buf)
+onInput = function(player, frame, buf)
     -- 按住前 且 没按上 且 没按下 → 前进
     if buf:held("right") and not buf:held("up") and not buf:held("down") then
         player:setState("walk_forward")
@@ -3904,9 +3904,9 @@ on_frame = function(player, frame, buf)
 end
 ```
 
-#### MUGEN trigger 和 Love2D on_frame 的对应关系
+#### MUGEN trigger 和 Love2D onInput 的对应关系
 
-| MUGEN trigger | 含义 | Love2D on_frame |
+| MUGEN trigger | 含义 | Love2D onInput |
 |---|---|---|
 | `command = "holdxxx"` | 正在按住 xxx | `buf:held("xxx")` |
 | `command != "holdxxx"` | 没按住 xxx | `not buf:held("xxx")` |
@@ -3916,7 +3916,7 @@ end
 | `Animelemtime(N) >= 0` | 动画第 N 帧后 | `frame >= N`（动画帧对齐时） |
 | `movecontact` | 攻击命中过 | `player.last_attack_hit` |
 
-**核心对应**：MUGEN 把"时间窗口 + 输入检测 + 状态条件"写在 trigger 行里（AND 关系），Love2D 用 if 嵌套表达。思路完全一样，只是表达方式不同。MUGEN 的 trigger 只能用预定义函数，Love2D 的 `on_frame` 可以写任意 Lua 代码，更灵活。
+**核心对应**：MUGEN 把"时间窗口 + 输入检测 + 状态条件"写在 trigger 行里（AND 关系），Love2D 用 if 嵌套表达。思路完全一样，只是表达方式不同。MUGEN 的 trigger 只能用预定义函数，Love2D 的 `onInput` 可以写任意 Lua 代码，更灵活。
 
 ### 9.6 模拟摇杆 + 死区
 
@@ -4486,7 +4486,7 @@ MUGEN 风格没这个问题——cur_buffer_time 短，自然过期。意图队�
 - 区分 state_change 和 instant 命令类型（§9.4）
 - 实现边沿触发 + 冷却 + spawn 发射物
 - 幻影剑/开枪这类不影响状态的技能
-- 实现状态内输入检测 on_frame（§9.5）
+- 实现状态内输入检测 onInput（§9.5）
 - 完美次元斩/红刀这类状态内精确输入
 
 **阶段 5（3-5 天）：鬼泣特色**
@@ -4626,7 +4626,7 @@ end
 | 连段切换 | ✅ 靠 CNS state + trigger | ✅ cancel_windows 直接应用（§9.7） |
 | 缓冲下一招 | ✅ curbuftime | ✅ 可复刻 |
 | 即时动作命令（不进状态） | ⚠️ 靠 Helper/Projectile SCTRL | ✅ type=instant + 边沿触发（§9.4） |
-| 状态内输入检测（完美释放/红刀） | ✅ 靠 CNS state + trigger | ✅ on_frame + 时间窗口（§9.5） |
+| 状态内输入检测（完美释放/红刀） | ✅ 靠 CNS state + trigger | ✅ onInput + 时间窗口（§9.5） |
 | 蓄力释放（长按蓄力+松开触发） | ✅ var() 标志 + command != "hold" | ✅ charging 标志 + not held + charge_frame（§9.5） |
 | 状态 vs 标志区分 | ✅ stateno vs var() | ✅ player.state vs player.flag（§9.5） |
 | 武器/风格切换 | ⚠️ 靠 CNS 变量 | ✅ 标志 + 冷却 + 命令分流（§9.8） |
@@ -4679,7 +4679,7 @@ end
 
 | 类型 | 触发条件 | 例子 | 对应 MUGEN | Love2D 实现 |
 |---|---|---|---|---|
-| **后摇窗口取消** | 当前状态 + 后摇帧窗口 + 输入 | 连段派生、JC、闪避取消后摇、走路取消后摇 | 用法 B（stateno + time） | `cancel_windows` / `on_frame` |
+| **后摇窗口取消** | 当前状态 + 后摇帧窗口 + 输入 | 连段派生、JC、闪避取消后摇、走路取消后摇 | 用法 B（stateno + time） | `cancel_windows` / `onInput` |
 | **idle/移动起手** | 自由状态 + 输入 | 站着/移动中按攻击键出第一刀 | 用法 A（command + ctrl） | `updateInstantCommands` |
 | **大招触发** | 资源 + 输入（部分还有状态限制） | 魔人化、DT取消 | 用法 A + 资源条件 | `updateInstantCommands` + 资源检查 |
 
@@ -4764,9 +4764,9 @@ states.light_combo_1 = {
 function Player:updateControl(dt, buf)
     local state = states[self.state]
 
-    -- 1. on_frame：复杂取消（JC、DT取消等需要命中/资源条件的）
-    if state.on_frame then
-        state.on_frame(self, self.frame, buf)
+    -- 1. onInput：复杂取消（JC、DT取消等需要命中/资源条件的）
+    if state.onInput then
+        state.onInput(self, self.frame, buf)
         if self.state ~= state.name then
             self.state_changed = true
             return
@@ -5208,7 +5208,7 @@ table 写法长一些，但只写一次，后面引用都是 `Command.isActive("
 
 ## 附录 F：完备的 -1 trigger 系统
 
-> 正文 §4.5 和 `updateControl` 例子用 `cancel_windows` + `on_frame` 处理状态内取消，那是**教学简化版**。做完备的 -1 状态需要更完整的 trigger 系统。这一附录对比 MUGEN -1 的真实结构，给出 Love2D 的完整方案。
+> 正文 §4.5 和 `updateControl` 例子用 `cancel_windows` + `onInput` 处理状态内取消，那是**教学简化版**。做完备的 -1 状态需要更完整的 trigger 系统。这一附录对比 MUGEN -1 的真实结构，给出 Love2D 的完整方案。
 
 ### F.1 MUGEN -1 的真实结构
 
@@ -5261,7 +5261,7 @@ trigger5 = stateno = 830 && movecontact
 
 ### F.2 当前 cancel_windows 的局限
 
-文档当前 `updateControl` 用 cancel_windows + on_frame，是简化版。对比 MUGEN trigger，cancel_windows 表达不了的东西：
+文档当前 `updateControl` 用 cancel_windows + onInput，是简化版。对比 MUGEN trigger，cancel_windows 表达不了的东西：
 
 | MUGEN trigger 能表达 | cancel_windows 能表达？ |
 |---|---|
@@ -5430,10 +5430,10 @@ table.sort(triggers_minus1.entries, function(a, b)
 end)
 
 function Player:updateControl(dt, buf)
-    -- 1. on_frame（状态内自定义逻辑，如红刀/完美次元斩）
+    -- 1. onInput（状态内自定义逻辑，如红刀/完美次元斩）
     local state = states[self.state]
-    if state.on_frame then
-        state.on_frame(self, self.frame, buf)
+    if state.onInput then
+        state.onInput(self, self.frame, buf)
         if self.state ~= state.name then
             self.state_changed = true
             return
@@ -5835,7 +5835,7 @@ end
 3. **hitstop 期间输入照常读，命令匹配照常跑，只是 cur_buffer_time 不递减**。这是动作游戏预输入的关键。
 4. **MUGEN 的设计可以迁移到 Love2D**，而且用 Lua 表定义命令比 MUGEN 的字符串更灵活。
 5. **做鬼泣先用 MUGEN 风格的三件套**：命令缓冲（curbuftime）+ 取消窗口 + 优先级顺序。这够做普通连段。
-6. **输入处理有三种方式**：状态切换命令走 cancel_windows；即时动作命令走边沿触发+spawn（不进状态机）；状态内输入检测走 on_frame（完美次元斩/红刀这类状态内精确输入）。
+6. **输入处理有三种方式**：状态切换命令走 cancel_windows；即时动作命令走边沿触发+spawn（不进状态机）；状态内输入检测走 onInput（完美次元斩/红刀这类状态内精确输入）。
 7. **状态 vs 标志**：影响角色动作用状态（攻击、跳跃、次元斩释放）；不影响角色动作用标志（蓄力、红刀、锁定、无敌）。角色同时只能一个状态，但可以叠加多个标志。蓄力是标志所以能边跑边蓄力。
 8. **防止借用**：状态切换命令完成时，清掉其他状态切换命令的 step 进度。不限制预输入，不影响即时命令，比 `>` 跟随符更实用。
 9. **意图队列是高级特性，不是基础**。先做简单版本，玩起来发现不够再加。

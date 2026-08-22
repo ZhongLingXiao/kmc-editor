@@ -77,13 +77,13 @@
 1. **鬼泣只用 S/A/L 三种 StateType**（去掉 C 蹲下）
 2. **不做防御系列状态**（120-155 不实现）
 3. **不做 juggle 点数**（用"空中技能 CD + JC 重置"替代）
-4. **状态文件格式**：`states/N.lua`，回调 onEnter/onExit/onFrame/onUpdate
+4. **状态文件格式**：`states/N.lua`，回调 onEnter/onExit/onInput/onTick
 5. **状态切换**：`player:setState(N)` 自动处理退出/进入/切动画/设ctrl
 6. **prevStateNo 记录**：setState 里记录 `self.prevStateNo = self.stateNo`，用于取消链限制（如 JC不能连JC）
 
 ### SCTRL（第三章）
 
-1. **ctrl 不是"开关输入"**：是"角色是否自由可控"的标志。ctrl=false 时 onFrame 照常调用、trigger entry 照常检查，只是带 ctrl 条件的 entry 失败。取消/RC 不需要 ctrl 甚至要求 !ctrl
+1. **ctrl 不是"开关输入"**：是"角色是否自由可控"的标志。ctrl=false 时 onInput 照常调用、trigger entry 照常检查，只是带 ctrl 条件的 entry 失败。取消/RC 不需要 ctrl 甚至要求 !ctrl
 2. **变量用命名字段**：`player.combo_count` 比 `player.vars[0]` 清晰。不用 MUGEN 的 var(index) 方式。需要动态访问时用 setVar/addVar 辅助方法（字符串 key）
 3. **SCTRL = Player 方法**：不需要声明式解析器，直接 `player:velSet(x, y)`
 
@@ -99,7 +99,7 @@
 1. **动画和状态分离**：状态定义 anim 字段，setState 自动 changeAnim。可中途换动画
 2. **animelemtime(N)==0 检测帧事件**：只触发一次，精确到 tick
 3. **hitbox_active 控制生效**：动画 JSON 定义形状，状态控制何时生效（被取消时立刻关）
-4. **帧事件表（数据驱动）**：事件列表写在 State.events 里，onUpdate 遍历触发
+4. **帧事件表（数据驱动）**：事件列表写在 State.events 里，onTick 遍历触发
 5. **Sprite Sheet 用 Quad**：love.graphics.newQuad 截取大图区域
 6. **朝向翻转**：draw 的 x 缩放传 facing，碰撞框/发射点的 x 乘 facing
 
@@ -154,17 +154,17 @@
 3. **键盘方案**：Shift 跑步（已确认）
 4. **加减速曲线**：move_x 在动画数据里设（起步从小到大，停步从大到小）
 
-### B. onFrame vs onUpdate ✅ 已确认
+### B. onInput vs onTick ✅ 已确认
 
-- `onFrame`：-1 层，**外部输入**驱动（玩家按键 → ChangeState）。有 buf 参数。总调用（不管 ctrl）
-- `onUpdate`：当前状态层，**内部时间**驱动（动画结束 → ChangeState）。无 buf 参数
-- 保持分开设计
+- `onInput`：-1 层，**外部输入**驱动（玩家按键 → ChangeState）。有 buf 参数。总调用（不管 ctrl）
+- `onTick`：当前状态层，**内部时间**驱动（动画结束 → ChangeState）。无 buf 参数
+- 保持分开设计。命名由 onFrame/onUpdate 改为 onInput/onTick，避免都像「每帧 update」
 
 ### C. 摩擦力归属 ✅ 已在第六章实现
 
 - **move_x**：动画驱动位移（locomotion，Physics=N）
 - **摩擦力**：引擎自动减速（被击击退/落地，Physics=S + moveType=I/H）
-- **VelMul**：状态主动减速（冲刺/空中收招，onUpdate 里调）
+- **VelMul**：状态主动减速（冲刺/空中收招，onTick 里调）
 - 三种机制不冲突，各管各的场景
 
 ---
@@ -219,7 +219,7 @@ Part 3（待写）：
 全部已确认 ✅
 
 1. ~~locomotion 键盘方案~~：✅ Shift 跑步
-2. ~~onFrame/onUpdate 是否保持分开~~：✅ 保持分开
+2. ~~onInput/onTick 是否保持分开~~：✅ 保持分开
 3. ~~摩擦力归属~~：✅ 按 moveType 区分（I/H 加，A 不加）
 4. ~~起步/停步动画~~：✅ 做（move_x 驱动）
 
