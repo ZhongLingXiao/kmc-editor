@@ -228,6 +228,15 @@ export const zh = {
     contextSetStart: '将当前播放头 Tick {{tick}} 设为攻击开始',
     contextSetEnd: '将当前播放头 Tick {{tick}} 设为攻击结束',
     contextOpenSettings: '打开阶段设置',
+    horizontalScroll: '时间线水平滚动',
+  },
+  status: {
+    frame: '帧 {{cur}}/{{total}}',
+    tick: 'Tick {{cur}}/{{total}}',
+    selectedFrames: '已选 {{count}} 帧',
+    selectedObjects: '已选 {{count}} 个对象',
+    zoom: '{{value}} px/Tick',
+    fitTimeline: '适应宽度',
   },
   preview: {
     facingLeft: '左（点击恢复右）',

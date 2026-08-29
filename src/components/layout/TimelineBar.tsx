@@ -2,7 +2,6 @@ import { useRef, useState, useMemo, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useEditorStore } from '../../store/editorStore'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -49,13 +48,15 @@ export default function TimelineBar() {
   const updateFrame = useEditorStore((s) => s.updateFrame)
   const previewLoop = useEditorStore((s) => s.previewLoop)
   const togglePreviewLoop = useEditorStore((s) => s.togglePreviewLoop)
-  const fps = useEditorStore((s) => s.fps)
   const phases = useEditorStore((s) => s.animation.phases)
   const selectedPhase = useEditorStore((s) => s.selectedPhase)
   const setPhaseMarkers = useEditorStore((s) => s.setPhaseMarkers)
   const clearPhaseMarkers = useEditorStore((s) => s.clearPhaseMarkers)
   const selectPhase = useEditorStore((s) => s.selectPhase)
   const clearPhaseSelection = useEditorStore((s) => s.clearPhaseSelection)
+  const pxPerTick = useEditorStore((s) => s.timelinePxPerTick)
+  const setTimelinePxPerTick = useEditorStore((s) => s.setTimelinePxPerTick)
+  const setTimelineViewportWidth = useEditorStore((s) => s.setTimelineViewportWidth)
 
   const [speedPopoverOpen, setSpeedPopoverOpen] = useState(false)
   const [customSpeedInput, setCustomSpeedInput] = useState('')
@@ -85,7 +86,6 @@ export default function TimelineBar() {
     setPhaseEndInput(`${phases?.activeEndTick ?? animation.totalTicks}`)
   }, [phasePopoverOpen, phases?.activeStartTick, phases?.activeEndTick, animation.totalTicks])
 
-  const [pxPerTick, setPxPerTick] = useState(12)
   const minPxPerTick = 2
   const maxPxPerTick = 40
 
@@ -111,24 +111,43 @@ export default function TimelineBar() {
   const [phasePreview, setPhasePreview] = useState<PhaseMarkers | null>(null)
   const playheadDragRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const scrollbarTrackRef = useRef<HTMLDivElement>(null)
+  const scrollbarDragRef = useRef<{
+    startX: number
+    startScrollLeft: number
+    trackWidth: number
+    thumbWidth: number
+    maxScrollLeft: number
+  } | null>(null)
+  const [draggingScrollbar, setDraggingScrollbar] = useState(false)
+  const [scrollLeft, setScrollLeft] = useState(0)
 
   // 测量滚动容器可视宽度，用于标尺铺满（即使无帧也有完整刻度尺）
   const [viewWidth, setViewWidth] = useState(0)
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    const update = () => setViewWidth(el.clientWidth)
+    const update = () => {
+      setViewWidth(el.clientWidth)
+      setTimelineViewportWidth(el.clientWidth)
+      setScrollLeft(el.scrollLeft)
+    }
     update()
     const ro = new ResizeObserver(update)
     ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
+    el.addEventListener('scroll', update)
+    return () => {
+      ro.disconnect()
+      el.removeEventListener('scroll', update)
+    }
+  }, [setTimelineViewportWidth])
 
-  const handleDurMouseDown = useCallback((e: React.MouseEvent, frameIndex: number) => {
+  const handleDurMouseDown = useCallback((e: React.PointerEvent, frameIndex: number) => {
     e.preventDefault()
     e.stopPropagation()
     const elem = animation.elements[frameIndex]
     if (!elem) return
+    e.currentTarget.setPointerCapture(e.pointerId)
     dragRef.current = { frameIndex, startX: e.clientX, startDur: elem.duration, pxPerTick }
     setDraggingFrame(frameIndex)
   }, [animation.elements, pxPerTick])
@@ -180,15 +199,6 @@ export default function TimelineBar() {
     }))
   }, [phaseRanges, t])
 
-  const currentPhase = phaseAtTick(phases, currentTick, animation.totalTicks)
-  const currentPhaseLabel =
-    currentPhase === 'startup'
-      ? t('timeline.startup')
-      : currentPhase === 'active'
-      ? t('timeline.active')
-      : currentPhase === 'recovery'
-      ? t('timeline.recovery')
-      : null
   const selectedPhaseRange = selectedPhase && phaseRanges ? phaseRanges[selectedPhase] : null
   const selectedPhaseLabel =
     selectedPhase === 'startup'
@@ -254,14 +264,15 @@ export default function TimelineBar() {
     setPhasePopoverOpen(true)
   }, [])
 
-  const handlePlayheadMouseDown = (e: React.MouseEvent) => {
+  const handlePlayheadMouseDown = (e: React.PointerEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
     playheadDragRef.current = true
     setPlaying(false)
   }
 
-  const handlePhaseTrackMouseDown = useCallback((e: React.MouseEvent) => {
+  const handlePhaseTrackMouseDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault()
     e.stopPropagation()
     clearPhaseSelection()
@@ -273,12 +284,13 @@ export default function TimelineBar() {
   }, [])
 
   const handlePhaseBoundaryMouseDown = useCallback((
-    e: React.MouseEvent,
+    e: React.PointerEvent,
     boundary: 'start' | 'end'
   ) => {
     e.preventDefault()
     e.stopPropagation()
     if (!phases) return
+    e.currentTarget.setPointerCapture(e.pointerId)
     setPlaying(false)
     const markers = { ...phases }
     phaseDragRef.current = {
@@ -291,15 +303,24 @@ export default function TimelineBar() {
     setPhasePreview(markers)
   }, [phases, pxPerTick, setPlaying])
 
-  const handleRulerMouseDown = useCallback((e: React.MouseEvent) => {
+  const handleRulerMouseDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault()
+    e.currentTarget.setPointerCapture(e.pointerId)
     setPlaying(false)
     clearPhaseSelection()
     setCurrentTick(tickFromClientX(e.clientX))
     playheadDragRef.current = true
   }, [clearPhaseSelection, tickFromClientX, setCurrentTick, setPlaying])
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handleMouseMove = (e: React.PointerEvent) => {
+    if (scrollbarDragRef.current) {
+      const { startX, startScrollLeft, trackWidth, thumbWidth, maxScrollLeft: dragMaxScrollLeft } = scrollbarDragRef.current
+      const available = trackWidth - thumbWidth
+      if (available > 0) {
+        setScrollPosition(startScrollLeft + ((e.clientX - startX) / available) * dragMaxScrollLeft)
+      }
+      return
+    }
     if (phaseDragRef.current) {
       const { boundary, startX, markers, pxPerTick: pt } = phaseDragRef.current
       const deltaTick = Math.round((e.clientX - startX) / pt)
@@ -336,6 +357,8 @@ export default function TimelineBar() {
   }
 
   const handleMouseUp = () => {
+    scrollbarDragRef.current = null
+    setDraggingScrollbar(false)
     if (phaseDragRef.current) {
       const initial = phaseDragRef.current.markers
       const preview = phasePreviewRef.current
@@ -366,6 +389,73 @@ export default function TimelineBar() {
   // 仅当内容真的超出可视区时才允许横向滚动，否则 hidden 避免空场景误出滚动条
   const canScroll = viewWidth > 0 && timelineWidth > viewWidth
 
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    setScrollLeft(el.scrollLeft)
+  }, [timelineWidth, viewWidth])
+
+  const maxScrollLeft = Math.max(0, timelineWidth - viewWidth)
+  const scrollbarThumbPercent = canScroll
+    ? Math.max(8, Math.min(100, (viewWidth / timelineWidth) * 100))
+    : 100
+  const scrollbarThumbLeftPercent = canScroll && maxScrollLeft > 0
+    ? (scrollLeft / maxScrollLeft) * (100 - scrollbarThumbPercent)
+    : 0
+
+  const setScrollPosition = useCallback((value: number) => {
+    const el = scrollRef.current
+    if (!el) return
+    const next = Math.max(0, Math.min(maxScrollLeft, value))
+    el.scrollLeft = next
+    setScrollLeft(next)
+  }, [maxScrollLeft])
+
+  const handleScrollbarTrackMouseDown = (e: React.PointerEvent) => {
+    e.preventDefault()
+    if (!canScroll) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const thumbWidth = rect.width * scrollbarThumbPercent / 100
+    const available = rect.width - thumbWidth
+    if (available <= 0) return
+    const target = (e.clientX - rect.left - thumbWidth / 2) / available
+    setScrollPosition(target * maxScrollLeft)
+  }
+
+  const handleScrollbarThumbMouseDown = (e: React.PointerEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!canScroll) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    const track = scrollbarTrackRef.current
+    if (!track) return
+    const trackWidth = track.getBoundingClientRect().width
+    const thumbWidth = trackWidth * scrollbarThumbPercent / 100
+    scrollbarDragRef.current = {
+      startX: e.clientX,
+      startScrollLeft: scrollLeft,
+      trackWidth,
+      thumbWidth,
+      maxScrollLeft,
+    }
+    setDraggingScrollbar(true)
+  }
+
+  const handleScrollbarKeyDown = (e: React.KeyboardEvent) => {
+    if (!canScroll) return
+    const step = Math.max(1, Math.round(viewWidth / pxPerTick / 2))
+    let next: number | null = null
+    if (e.key === 'ArrowLeft') next = scrollLeft - step
+    if (e.key === 'ArrowRight') next = scrollLeft + step
+    if (e.key === 'PageUp') next = scrollLeft - viewWidth
+    if (e.key === 'PageDown') next = scrollLeft + viewWidth
+    if (e.key === 'Home') next = 0
+    if (e.key === 'End') next = maxScrollLeft
+    if (next === null) return
+    e.preventDefault()
+    setScrollPosition(next)
+  }
+
   const tickStep = useMemo(() => {
     const minStep = Math.ceil(40 / pxPerTick)
     const steps = [1, 2, 5, 10, 20, 50, 100, 200, 500]
@@ -384,7 +474,7 @@ export default function TimelineBar() {
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault()
     const delta = e.deltaY > 0 ? -2 : 2
-    setPxPerTick((prev) => Math.max(minPxPerTick, Math.min(maxPxPerTick, prev + delta)))
+    setTimelinePxPerTick(Math.max(minPxPerTick, Math.min(maxPxPerTick, pxPerTick + delta)))
   }
 
   // 播放时冻结帧条高亮：避免每帧 currentFrameIndex 变化触发帧条重渲染
@@ -395,7 +485,7 @@ export default function TimelineBar() {
   const trackContent = useMemo(() => (
     <>
       {/* 标尺：刻度铺满，数字在顶部、刻度线在底部 */}
-      <div className="relative h-[18px] cursor-pointer border-b bg-card" onMouseDown={handleRulerMouseDown}>
+      <div className="relative h-[18px] cursor-pointer border-b bg-card" onPointerDown={handleRulerMouseDown}>
         {rulerTicks.map((tick) => (
           <div key={tick} className="absolute bottom-0 top-0" style={{ left: tick * pxPerTick }}>
             <span className="absolute left-1 top-0.5 whitespace-nowrap text-[9px] leading-none text-muted-foreground">{tick}</span>
@@ -409,7 +499,7 @@ export default function TimelineBar() {
         <ContextMenuTrigger asChild>
           <div
             className="relative h-[22px] cursor-pointer border-b bg-card/60"
-            onMouseDown={handlePhaseTrackMouseDown}
+            onPointerDown={handlePhaseTrackMouseDown}
             onContextMenu={handlePhaseContextMenu}
           >
         {phaseSegments.length > 0 ? (
@@ -436,7 +526,7 @@ export default function TimelineBar() {
                     : undefined,
                 }}
                 title={`${segment.label}: ${segment.range.endTick - segment.range.startTick} Tick`}
-                onMouseDown={(e) => {
+                onPointerDown={(e) => {
                   e.stopPropagation()
                   setPlaying(false)
                 }}
@@ -462,7 +552,7 @@ export default function TimelineBar() {
               key={boundary}
               className="absolute bottom-0 top-0 z-20 w-2 cursor-ew-resize"
               style={{ left: tick * pxPerTick - 4 }}
-              onMouseDown={(e) => handlePhaseBoundaryMouseDown(e, boundary)}
+              onPointerDown={(e) => handlePhaseBoundaryMouseDown(e, boundary)}
               title={boundary === 'start' ? t('timeline.activeStart') : t('timeline.activeEnd')}
             >
               <div
@@ -532,7 +622,7 @@ export default function TimelineBar() {
                 {/* 帧尾拖拽手柄：8px 透明命中区 + 1px 可见细线，hover/拖拽中变主色 */}
                 <div
                   className="group absolute right-[-4px] top-0 bottom-0 w-2 cursor-ew-resize"
-                  onMouseDown={(e) => handleDurMouseDown(e, i)}
+                  onPointerDown={(e) => handleDurMouseDown(e, i)}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div
@@ -557,9 +647,9 @@ export default function TimelineBar() {
   return (
     <div
       className="flex shrink-0 flex-col border-t bg-card"
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
+      onPointerMove={handleMouseMove}
+      onPointerUp={handleMouseUp}
+      onPointerCancel={handleMouseUp}
       onContextMenu={(e) => e.preventDefault()}
     >
       <div className="flex h-[38px] items-center gap-1 border-b px-2">
@@ -740,23 +830,6 @@ export default function TimelineBar() {
 
         <Separator orientation="vertical" className="mx-1 h-5" />
 
-        <Badge variant="secondary" className="font-normal">
-          {t('timeline.frameBadge', { cur: currentFrameIndex >= 0 ? currentFrameIndex : '-', total: hasFrames ? animation.elements.length - 1 : 0 })}
-        </Badge>
-        <Badge variant="secondary" className="font-normal text-orange-600">
-          Tick {currentTick}/{animation.totalTicks}
-        </Badge>
-        {currentPhaseLabel && (
-          <Badge variant="secondary" className="font-normal">
-            {currentPhaseLabel}
-          </Badge>
-        )}
-        {isPlaying && fps > 0 && (
-          <Badge variant="secondary" className="font-normal text-emerald-600">
-            {fps} fps
-          </Badge>
-        )}
-
         <div className="flex-1" />
 
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -765,18 +838,58 @@ export default function TimelineBar() {
         </div>
       </div>
 
-      <div ref={scrollRef} className={cn("relative h-[76px] overflow-y-hidden", canScroll ? "overflow-x-auto" : "overflow-x-hidden")} onWheel={handleWheel}>
+      <div
+        ref={scrollRef}
+        className={cn(
+          'timeline-scroll-hidden relative h-[76px] overflow-y-hidden',
+          canScroll ? 'overflow-x-auto' : 'overflow-x-hidden'
+        )}
+        onWheel={handleWheel}
+      >
         <div className="relative w-full" style={{ minWidth: timelineWidth }}>
           {trackContent}
 
           {hasFrames && (
             <div className="pointer-events-none absolute bottom-0 top-0 z-10 w-0.5" style={{ left: currentTick * pxPerTick }}>
-              <div className="pointer-events-auto absolute left-[-5px] bottom-0 top-0 w-3 cursor-ew-resize" onMouseDown={handlePlayheadMouseDown} />
+              <div className="pointer-events-auto absolute left-[-5px] bottom-0 top-0 w-3 cursor-ew-resize" onPointerDown={handlePlayheadMouseDown} />
               <div className="mx-auto h-full w-0.5 bg-red-500" />
               <div className="absolute left-[-5px] top-0 h-0 w-0 border-l-[6px] border-r-[6px] border-t-[8px] border-l-transparent border-r-transparent border-t-red-500" />
               <div className="absolute left-1.5 top-2 whitespace-nowrap rounded bg-background px-1 text-[9px] text-red-500">{currentTick}</div>
             </div>
           )}
+        </div>
+      </div>
+
+      <div
+        ref={scrollbarTrackRef}
+        className="relative h-[12px] shrink-0 cursor-pointer border-t bg-card/80"
+        onPointerDown={handleScrollbarTrackMouseDown}
+        aria-label={t('timeline.horizontalScroll')}
+      >
+        <div className="absolute inset-x-1 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-muted">
+          <div
+            role="scrollbar"
+            tabIndex={canScroll ? 0 : -1}
+            aria-orientation="horizontal"
+            aria-valuemin={0}
+            aria-valuemax={Math.round(maxScrollLeft)}
+            aria-valuenow={Math.round(scrollLeft)}
+            aria-label={t('timeline.horizontalScroll')}
+            className={cn(
+              'absolute bottom-0 top-0 min-w-[28px] rounded-full transition-colors',
+              canScroll
+                ? draggingScrollbar
+                  ? 'bg-muted-foreground'
+                  : 'bg-muted-foreground/60 hover:bg-muted-foreground'
+                : 'bg-border/70'
+            )}
+            style={{
+              left: `${scrollbarThumbLeftPercent}%`,
+              width: `${scrollbarThumbPercent}%`,
+            }}
+            onPointerDown={handleScrollbarThumbMouseDown}
+            onKeyDown={handleScrollbarKeyDown}
+          />
         </div>
       </div>
     </div>

@@ -139,3 +139,14 @@
     user-select: text;
   }
 }
+
+/* 时间线使用独立滚动条，避免系统横向滚动条覆盖帧信息 */
+.timeline-scroll-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.timeline-scroll-hidden::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}

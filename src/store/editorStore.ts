@@ -25,6 +25,9 @@ function genId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
 }
 
+const TIMELINE_MIN_PX_PER_TICK = 2
+const TIMELINE_MAX_PX_PER_TICK = 40
+
 /** 创建空帧 */
 function createEmptyElement(index: number): AnimElement {
   return {
@@ -212,6 +215,8 @@ interface EditorState {
   panY: number // 画布平移偏移 Y
   gridSize: number // 网格单元尺寸（逻辑像素，编辑器态，不进撤销历史）
   canvasBgColor: string | null // 画布背景色（编辑器态，null = 用主题 bg-muted）
+  timelinePxPerTick: number // 时间线缩放（编辑器态，不进动画数据）
+  timelineViewportWidth: number // 时间线可视宽度（编辑器态，不进动画数据）
 
   // === Actions: 动画管理 ===
   setAnimation: (data: AnimationData) => void
@@ -292,6 +297,9 @@ interface EditorState {
   resetView: () => void
   setGridSize: (size: number) => void
   setCanvasBgColor: (color: string | null) => void
+  setTimelinePxPerTick: (value: number) => void
+  setTimelineViewportWidth: (width: number) => void
+  fitTimeline: () => void
 }
 
 export const useEditorStore = create<EditorState>()(
@@ -349,6 +357,8 @@ export const useEditorStore = create<EditorState>()(
       panY: 0,
       gridSize: 20,
       canvasBgColor: null,
+      timelinePxPerTick: 12,
+      timelineViewportWidth: 0,
 
       // === 动画管理 ===
       setAnimation: (data) => {
@@ -1123,6 +1133,28 @@ export const useEditorStore = create<EditorState>()(
         })),
       setGridSize: (size) => set({ gridSize: Math.max(2, Math.round(size)) }),
       setCanvasBgColor: (color) => set({ canvasBgColor: color }),
+      setTimelinePxPerTick: (value) =>
+        set({
+          timelinePxPerTick: Math.max(
+            TIMELINE_MIN_PX_PER_TICK,
+            Math.min(TIMELINE_MAX_PX_PER_TICK, value)
+          ),
+        }),
+      setTimelineViewportWidth: (width) =>
+        set({ timelineViewportWidth: Math.max(0, width) }),
+      fitTimeline: () =>
+        set((s) => {
+          if (s.animation.totalTicks <= 0 || s.timelineViewportWidth <= 0) return s
+          const pxPerTick = Math.round(
+            ((s.timelineViewportWidth - 8) / s.animation.totalTicks) * 100
+          ) / 100
+          return {
+            timelinePxPerTick: Math.max(
+              TIMELINE_MIN_PX_PER_TICK,
+              Math.min(TIMELINE_MAX_PX_PER_TICK, pxPerTick)
+            ),
+          }
+        }),
     }),
     {
       // 撤销/重做配置：只追踪动画数据变化

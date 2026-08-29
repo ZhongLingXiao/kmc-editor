@@ -13,6 +13,7 @@ import CanvasArea from './components/layout/CanvasArea'
 import Inspector from './components/layout/Inspector'
 import SettingsPanel from './components/layout/SettingsPanel'
 import TimelineBar from './components/layout/TimelineBar'
+import StatusBar from './components/layout/StatusBar'
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable'
 
 export default function App() {
@@ -265,6 +266,7 @@ export default function App() {
         </Tabs>
         </div>
         <TimelineBar />
+        <StatusBar />
       </div>
       <Toaster richColors position="bottom-right" />
     </TooltipProvider>

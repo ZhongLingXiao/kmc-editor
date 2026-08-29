@@ -228,6 +228,15 @@ export const en = {
     contextSetStart: 'Set active start to playhead Tick {{tick}}',
     contextSetEnd: 'Set active end to playhead Tick {{tick}}',
     contextOpenSettings: 'Open phase settings',
+    horizontalScroll: 'Timeline horizontal scroll',
+  },
+  status: {
+    frame: 'Frame {{cur}}/{{total}}',
+    tick: 'Tick {{cur}}/{{total}}',
+    selectedFrames: '{{count}} frames selected',
+    selectedObjects: '{{count}} objects selected',
+    zoom: '{{value}} px/Tick',
+    fitTimeline: 'Fit Timeline',
   },
   preview: {
     facingLeft: 'Left (click for right)',
