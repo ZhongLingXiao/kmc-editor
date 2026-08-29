@@ -110,6 +110,7 @@ export default function TimelineBar() {
   const phasePreviewRef = useRef<PhaseMarkers | null>(null)
   const [phasePreview, setPhasePreview] = useState<PhaseMarkers | null>(null)
   const playheadDragRef = useRef(false)
+  const [draggingPlayhead, setDraggingPlayhead] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const scrollbarTrackRef = useRef<HTMLDivElement>(null)
   const scrollbarDragRef = useRef<{
@@ -269,6 +270,7 @@ export default function TimelineBar() {
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
     playheadDragRef.current = true
+    setDraggingPlayhead(true)
     setPlaying(false)
   }
 
@@ -359,6 +361,7 @@ export default function TimelineBar() {
   const handleMouseUp = () => {
     scrollbarDragRef.current = null
     setDraggingScrollbar(false)
+    setDraggingPlayhead(false)
     if (phaseDragRef.current) {
       const initial = phaseDragRef.current.markers
       const preview = phasePreviewRef.current
@@ -477,6 +480,14 @@ export default function TimelineBar() {
     setTimelinePxPerTick(Math.max(minPxPerTick, Math.min(maxPxPerTick, pxPerTick + delta)))
   }
 
+  const playheadX = currentTick * pxPerTick
+  const playheadVisibleX = playheadX - scrollLeft
+  const playheadLabelStyle = viewWidth > 0 && playheadVisibleX < 20
+    ? { left: 4, transform: 'translateX(0)' }
+    : viewWidth > 0 && playheadVisibleX > viewWidth - 20
+    ? { left: -4, transform: 'translateX(-100%)' }
+    : { left: '50%', transform: 'translateX(-50%)' }
+
   // 播放时冻结帧条高亮：避免每帧 currentFrameIndex 变化触发帧条重渲染
   const highlightFrame = isPlaying ? -1 : currentFrameIndex
 
@@ -513,7 +524,7 @@ export default function TimelineBar() {
               : null
             if (width <= 0) return null
             return (
-              <Tooltip key={segment.name}>
+              <Tooltip key={segment.name} delayDuration={250} disableHoverableContent>
                 <TooltipTrigger asChild>
                   <div
                 className={cn(
@@ -544,7 +555,7 @@ export default function TimelineBar() {
                 {phaseText && <span className="whitespace-nowrap">{phaseText}</span>}
                   </div>
                 </TooltipTrigger>
-                <TooltipContent side="top" sideOffset={4} className="px-2 py-1.5">
+                <TooltipContent side="top" sideOffset={4} className="pointer-events-none px-2 py-1.5">
                   <div className="flex flex-col gap-0.5 text-[11px]">
                     <span className="font-medium">{segment.label}</span>
                     <span>{duration} Tick · {segment.range.startTick}–{segment.range.endTick}</span>
@@ -560,7 +571,7 @@ export default function TimelineBar() {
         )}
 
         {phaseBoundaries.map(({ boundary, tick }) => (
-          <Tooltip key={boundary}>
+          <Tooltip key={boundary} delayDuration={250} disableHoverableContent>
             <TooltipTrigger asChild>
             <div
               className="absolute bottom-0 top-0 z-20 w-2 cursor-ew-resize"
@@ -577,7 +588,7 @@ export default function TimelineBar() {
               />
             </div>
             </TooltipTrigger>
-            <TooltipContent side="top" sideOffset={4}>
+            <TooltipContent side="top" sideOffset={4} className="pointer-events-none">
               {boundary === 'start' ? t('timeline.activeStart') : t('timeline.activeEnd')} · Tick {tick}
             </TooltipContent>
           </Tooltip>
@@ -623,7 +634,7 @@ export default function TimelineBar() {
             const width = elem.duration * pxPerTick
             const left = frameStartTicks[i] * pxPerTick
             return (
-              <Tooltip key={i}>
+              <Tooltip key={i} delayDuration={350} disableHoverableContent>
                 <TooltipTrigger asChild>
                   <div
                     className={cn(
@@ -655,7 +666,7 @@ export default function TimelineBar() {
                 </div>
                   </div>
                 </TooltipTrigger>
-                <TooltipContent side="top" sideOffset={4}>
+                <TooltipContent side="top" sideOffset={4} className="pointer-events-none">
                   F{i} · {elem.duration} Tick
                 </TooltipContent>
               </Tooltip>
@@ -876,11 +887,24 @@ export default function TimelineBar() {
           {trackContent}
 
           {hasFrames && (
-            <div className="pointer-events-none absolute bottom-0 top-0 z-10 w-0.5" style={{ left: currentTick * pxPerTick }}>
-              <div className="pointer-events-auto absolute left-[-5px] bottom-0 top-0 w-3 cursor-ew-resize" onPointerDown={handlePlayheadMouseDown} />
-              <div className="mx-auto h-full w-0.5 bg-red-500" />
-              <div className="absolute left-[-5px] top-0 h-0 w-0 border-l-[6px] border-r-[6px] border-t-[8px] border-l-transparent border-r-transparent border-t-red-500" />
-              <div className="absolute left-1.5 top-2 whitespace-nowrap rounded bg-background px-1 text-[9px] text-red-500">{currentTick}</div>
+            <div className="pointer-events-none absolute bottom-0 top-0 z-30 w-0" style={{ left: playheadX }}>
+              <div
+                className="pointer-events-auto absolute bottom-0 left-1/2 top-0 w-5 -translate-x-1/2 cursor-ew-resize"
+                onPointerDown={handlePlayheadMouseDown}
+              />
+              <div
+                className="absolute bottom-0 left-1/2 top-0 -translate-x-1/2 bg-red-500"
+                style={{
+                  width: draggingPlayhead ? 2 : 1,
+                  boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.65)',
+                }}
+              />
+              <div
+                className="absolute top-0 flex h-4 min-w-[24px] items-center justify-center rounded bg-red-500 px-1 text-[10px] font-medium leading-none text-white shadow-sm ring-1 ring-white/70"
+                style={playheadLabelStyle}
+              >
+                {currentTick}
+              </div>
             </div>
           )}
         </div>
