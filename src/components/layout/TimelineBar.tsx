@@ -2,6 +2,7 @@ import { useRef, useState, useMemo, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useEditorStore } from '../../store/editorStore'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -45,6 +46,7 @@ export default function TimelineBar() {
   const setPlaying = useEditorStore((s) => s.setPlaying)
   const playSpeed = useEditorStore((s) => s.playSpeed)
   const setPlaySpeed = useEditorStore((s) => s.setPlaySpeed)
+  const fps = useEditorStore((s) => s.fps)
   const updateFrame = useEditorStore((s) => s.updateFrame)
   const previewLoop = useEditorStore((s) => s.previewLoop)
   const togglePreviewLoop = useEditorStore((s) => s.togglePreviewLoop)
@@ -866,6 +868,12 @@ export default function TimelineBar() {
         </Popover>
 
         <Separator orientation="vertical" className="mx-1 h-5" />
+
+        {isPlaying && fps > 0 && (
+          <Badge variant="secondary" className="font-normal text-emerald-600">
+            {fps} fps
+          </Badge>
+        )}
 
         <div className="flex-1" />
 
