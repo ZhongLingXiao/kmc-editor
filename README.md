@@ -18,6 +18,7 @@ npm run dev
 - 添加帧、删除帧、复制帧
 - 为每帧载入精灵图（PNG）
 - 设置每帧停留时长（Tick 数）
+- 在时间线上标定前摇、攻击判定、后摇，并按 Tick 精确调整边界
 
 ### 精灵对齐
 - 设置每帧精灵轴点（Sprite Pivot），与固定角色根点 `Root (0,0)` 对齐
@@ -151,11 +152,19 @@ File System Access API 仅 Chromium 系支持（Chrome/Edge）。Firefox/Safari 
       "spawnPoints": []
     }
   ],
+  "phases": {
+    "activeStartTick": 4,
+    "activeEndTick": 7
+  },
   "pushbox": {
     "stand": { "id": "push_stand", "x": -12, "y": 0, "w": 24, "h": 60 }
   }
 }
 ```
+
+`phases` 可选，使用左闭右开 Tick 区间：前摇为 `[0, activeStartTick)`，
+攻击判定为 `[activeStartTick, activeEndTick)`，后摇为
+`[activeEndTick, totalTicks)`。它是动画数据的一部分，即使关闭编辑器元数据导出也会保留。
 
 ## 技术栈
 

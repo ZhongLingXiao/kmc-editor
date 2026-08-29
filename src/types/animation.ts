@@ -60,6 +60,22 @@ export interface AnimElement {
   spawnPoints: SpawnPoint[];
 }
 
+/** 动画阶段名称：前摇、攻击判定、后摇 */
+export type PhaseName = 'startup' | 'active' | 'recovery';
+
+/**
+ * 动画级阶段边界（Tick）。
+ * 使用左闭右开区间：
+ * startup=[0, activeStartTick)，active=[activeStartTick, activeEndTick)，
+ * recovery=[activeEndTick, totalTicks)。
+ */
+export interface PhaseMarkers {
+  /** 攻击判定开始 Tick（包含） */
+  activeStartTick: number;
+  /** 攻击判定结束 Tick（不包含） */
+  activeEndTick: number;
+}
+
 /** 推挤框（按状态类型区分，不随帧变化） */
 export interface PushboxSet {
   stand?: Box;
@@ -89,6 +105,8 @@ export interface AnimationData {
   loop: boolean;
   /** 动画元素列表 */
   elements: AnimElement[];
+  /** 前摇/攻击判定/后摇阶段边界（可选，未标定时省略） */
+  phases?: PhaseMarkers;
   /** 推挤框 */
   pushbox: PushboxSet;
   /** 编辑器元数据（可选，旧文件可能没有） */
@@ -156,4 +174,10 @@ export const COLORS = {
   onionNext: 'rgba(255, 80, 80, 0.2)',
   onionPrevBorder: 'rgba(0, 150, 255, 0.9)',
   onionNextBorder: 'rgba(255, 80, 80, 0.9)',
+  phaseStartup: 'rgba(20, 184, 166, 0.55)',
+  phaseStartupBorder: 'rgba(13, 148, 136, 0.95)',
+  phaseActive: 'rgba(239, 68, 68, 0.62)',
+  phaseActiveBorder: 'rgba(220, 38, 38, 0.95)',
+  phaseRecovery: 'rgba(59, 130, 246, 0.55)',
+  phaseRecoveryBorder: 'rgba(37, 99, 235, 0.95)',
 } as const;

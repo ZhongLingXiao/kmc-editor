@@ -8,7 +8,14 @@ import {
   Tool,
   ShowLayers,
   OnionSkinSettings,
+  PhaseName,
 } from '../types/animation'
+import {
+  normalizePhaseMarkers,
+  remapPhaseMarkersAfterDurationChange,
+  remapPhaseMarkersAfterRemovals,
+  shiftPhaseMarkersAfterInsert,
+} from '../utils/phases'
 
 /** 稳定空数组：用于 set 时避免每帧创建新 [] 引用触发订阅者 re-render */
 const EMPTY_IDS: string[] = []
@@ -178,6 +185,7 @@ interface EditorState {
   tool: Tool
   selectedBoxId: string | null
   selectedBoxType: 'hurtbox' | 'hitbox' | 'jcbox' | 'pushbox' | 'spawnpoint' | null
+  selectedPhase: PhaseName | null // 当前选中的时间线阶段（编辑器态）
   selectedIds: string[] // 多选：全部选中对象 id（跨类型），主选 = 最后操作项
   selectedFrameIndices: number[] // 多选：选中的帧（元素操作按对应关系传播到这些帧）
   showLayers: ShowLayers
@@ -208,6 +216,10 @@ interface EditorState {
   // === Actions: 动画管理 ===
   setAnimation: (data: AnimationData) => void
   updateAnimationMeta: (meta: Partial<Pick<AnimationData, 'id' | 'name' | 'loop'>>) => void
+  setPhaseMarkers: (activeStartTick: number, activeEndTick: number) => void
+  clearPhaseMarkers: () => void
+  selectPhase: (phase: PhaseName | null) => void
+  clearPhaseSelection: () => void
 
   // === Actions: 帧管理 ===
   addFrame: (sourceIndex?: number) => void
@@ -293,6 +305,7 @@ export const useEditorStore = create<EditorState>()(
       tool: 'select',
       selectedBoxId: null,
       selectedBoxType: null,
+      selectedPhase: null,
       selectedIds: [],
       selectedFrameIndices: [],
       showLayers: {
@@ -339,17 +352,23 @@ export const useEditorStore = create<EditorState>()(
 
       // === 动画管理 ===
       setAnimation: (data) => {
+        const totalTicks = data.elements.reduce((sum, e) => sum + e.duration, 0)
+        const phases = normalizePhaseMarkers(data.phases, totalTicks)
+        const animation = { ...data, totalTicks }
+        if (phases) animation.phases = phases
+        else delete animation.phases
         set((s) => ({
-          animation: data,
-          currentFrameIndex: data.elements.length > 0 ? 0 : -1,
+          animation,
+          currentFrameIndex: animation.elements.length > 0 ? 0 : -1,
           currentTick: 0,
           // 从文件恢复编辑器设置
-          onionSkin: data.editor?.onionSkin ?? s.onionSkin,
-          showLayers: data.editor?.showLayers ?? s.showLayers,
+          onionSkin: animation.editor?.onionSkin ?? s.onionSkin,
+          showLayers: animation.editor?.showLayers ?? s.showLayers,
           selectedIds: [],
           selectedBoxId: null,
           selectedBoxType: null,
-          selectedFrameIndices: data.elements.length > 0 ? [0] : [],
+          selectedPhase: null,
+          selectedFrameIndices: animation.elements.length > 0 ? [0] : [],
         }))
         // 载入/新建/导入是全新起点：清空撤销历史，避免 Ctrl+Z 回退到打开前
         useEditorStore.temporal.getState().clear()
@@ -358,10 +377,30 @@ export const useEditorStore = create<EditorState>()(
       updateAnimationMeta: (meta) =>
         set((s) => ({ animation: { ...s.animation, ...meta } })),
 
+      setPhaseMarkers: (activeStartTick, activeEndTick) =>
+        set((s) => {
+          const totalTicks = s.animation.elements.reduce((sum, e) => sum + e.duration, 0)
+          const phases = normalizePhaseMarkers({ activeStartTick, activeEndTick }, totalTicks)
+          if (!phases) return s
+          return { animation: { ...s.animation, totalTicks, phases } }
+        }),
+
+      clearPhaseMarkers: () =>
+        set((s) => {
+          if (!s.animation.phases) return s
+          const animation = { ...s.animation }
+          delete animation.phases
+          return { animation, selectedPhase: null }
+        }),
+
+      selectPhase: (phase) => set({ selectedPhase: phase }),
+      clearPhaseSelection: () => set({ selectedPhase: null }),
+
       // === 帧管理 ===
       addFrame: (sourceIndex) =>
         set((s) => {
           const elements = [...s.animation.elements]
+          const oldTotalTicks = elements.reduce((sum, e) => sum + e.duration, 0)
           const newIndex = elements.length
 
           // 继承源帧数据：轴点与碰撞箱/发射点分别由两个开关控制，精灵图 src 继承（多帧可共用同一张图，磁盘只一份）
@@ -385,24 +424,39 @@ export const useEditorStore = create<EditorState>()(
 
           elements.push(newElement)
           const totalTicks = elements.reduce((sum, e) => sum + e.duration, 0)
+          const phases = shiftPhaseMarkersAfterInsert(
+            s.animation.phases,
+            oldTotalTicks,
+            newElement.duration,
+            oldTotalTicks,
+            totalTicks
+          )
           return {
-            animation: { ...s.animation, elements, totalTicks },
+            animation: { ...s.animation, elements, totalTicks, phases },
             currentFrameIndex: newIndex,
-            currentTick: s.animation.totalTicks, // 新帧的起始 tick = 旧总 tick
+            currentTick: oldTotalTicks, // 新帧的起始 tick = 旧总 tick
           }
         }),
 
       removeFrame: (index) =>
         set((s) => {
           if (s.animation.elements.length <= 1) return s
+          const oldElements = s.animation.elements
+          const removedStartTick = frameStartTick(oldElements, index)
+          const removedEndTick = removedStartTick + oldElements[index].duration
           const elements = s.animation.elements
             .filter((_, i) => i !== index)
             .map((e, i) => ({ ...e, index: i }))
           const totalTicks = elements.reduce((sum, e) => sum + e.duration, 0)
+          const phases = remapPhaseMarkersAfterRemovals(
+            s.animation.phases,
+            [{ startTick: removedStartTick, endTick: removedEndTick }],
+            totalTicks
+          )
           const newIndex = Math.min(s.currentFrameIndex, elements.length - 1)
           const newTick = Math.min(s.currentTick, Math.max(0, totalTicks - 1))
           return {
-            animation: { ...s.animation, elements, totalTicks },
+            animation: { ...s.animation, elements, totalTicks, phases },
             currentFrameIndex: Math.max(0, newIndex),
             currentTick: newTick,
             selectedIds: [],
@@ -415,7 +469,9 @@ export const useEditorStore = create<EditorState>()(
       insertFrame: (at, sourceIndex) =>
         set((s) => {
           const elements = s.animation.elements
+          const oldTotalTicks = elements.reduce((sum, e) => sum + e.duration, 0)
           const clampedAt = Math.max(0, Math.min(at, elements.length))
+          const insertionTick = frameStartTick(elements, clampedAt)
           // 继承源帧数据：轴点与碰撞箱/发射点分别由两个开关控制，精灵图 src 继承，重新生成 ID
           const src = elements[sourceIndex] ?? elements[clampedAt] ?? null
           const inheritOffset = s.newFrameInheritOffset
@@ -439,8 +495,15 @@ export const useEditorStore = create<EditorState>()(
             ...elements.slice(clampedAt),
           ].map((e, i) => ({ ...e, index: i }))
           const totalTicks = newElements.reduce((sum, e) => sum + e.duration, 0)
+          const phases = shiftPhaseMarkersAfterInsert(
+            s.animation.phases,
+            insertionTick,
+            newElement.duration,
+            oldTotalTicks,
+            totalTicks
+          )
           return {
-            animation: { ...s.animation, elements: newElements, totalTicks },
+            animation: { ...s.animation, elements: newElements, totalTicks, phases },
             currentFrameIndex: clampedAt,
             currentTick: frameStartTick(newElements, clampedAt),
           }
@@ -450,6 +513,8 @@ export const useEditorStore = create<EditorState>()(
         set((s) => {
           const source = s.animation.elements[index]
           if (!source) return s
+          const oldTotalTicks = s.animation.elements.reduce((sum, e) => sum + e.duration, 0)
+          const insertionTick = frameStartTick(s.animation.elements, index + 1)
           const copy: AnimElement = {
             ...source,
             hurtboxes: source.hurtboxes.map((b) => ({ ...b, id: genId() })),
@@ -464,8 +529,15 @@ export const useEditorStore = create<EditorState>()(
             ...s.animation.elements.slice(index + 1),
           ].map((e, i) => ({ ...e, index: i }))
           const totalTicks = elements.reduce((sum, e) => sum + e.duration, 0)
+          const phases = shiftPhaseMarkersAfterInsert(
+            s.animation.phases,
+            insertionTick,
+            copy.duration,
+            oldTotalTicks,
+            totalTicks
+          )
           return {
-            animation: { ...s.animation, elements, totalTicks },
+            animation: { ...s.animation, elements, totalTicks, phases },
             currentFrameIndex: index + 1,
             currentTick: frameStartTick(elements, index + 1),
           }
@@ -474,7 +546,7 @@ export const useEditorStore = create<EditorState>()(
       setFrame: (index) =>
         set((s) => {
           if (index < 0 || index >= s.animation.elements.length) return s
-          return { currentFrameIndex: index, currentTick: frameStartTick(s.animation.elements, index), selectedIds: [], selectedBoxId: null, selectedBoxType: null, selectedFrameIndices: [index] }
+          return { currentFrameIndex: index, currentTick: frameStartTick(s.animation.elements, index), selectedPhase: null, selectedIds: [], selectedBoxId: null, selectedBoxType: null, selectedFrameIndices: [index] }
         }),
 
       applyFrameToFrames: (sourceIndex, targetIndices) =>
@@ -542,12 +614,25 @@ export const useEditorStore = create<EditorState>()(
         set((s) => {
           const elements = [...s.animation.elements]
           if (!elements[index]) return s
+          const previous = elements[index]
+          const oldDuration = previous.duration
+          const frameStart = frameStartTick(s.animation.elements, index)
           elements[index] = { ...elements[index], ...data }
           const totalTicks = elements.reduce((sum, e) => sum + e.duration, 0)
+          const phases =
+            data.duration !== undefined
+              ? remapPhaseMarkersAfterDurationChange(
+                  s.animation.phases,
+                  frameStart,
+                  oldDuration,
+                  elements[index].duration,
+                  totalTicks
+                )
+              : normalizePhaseMarkers(s.animation.phases, totalTicks)
           // 时长变化后保证播放头仍在范围内
           const clampedTick = Math.min(s.currentTick, totalTicks)
           return {
-            animation: { ...s.animation, elements, totalTicks },
+            animation: { ...s.animation, elements, totalTicks, phases },
             currentTick: clampedTick,
             currentFrameIndex: findFrameIndex(elements, clampedTick),
           }
@@ -742,6 +827,7 @@ export const useEditorStore = create<EditorState>()(
           return {
             currentFrameIndex: i,
             currentTick: frameStartTick(s.animation.elements, i),
+            selectedPhase: null,
             selectedFrameIndices: next,
             selectedIds: [],
             selectedBoxId: null,
@@ -753,6 +839,7 @@ export const useEditorStore = create<EditorState>()(
       selectFrameRange: (indices) =>
         set({
           selectedFrameIndices: indices,
+          selectedPhase: null,
           selectedIds: [],
           selectedBoxId: null,
           selectedBoxType: null,
@@ -766,13 +853,30 @@ export const useEditorStore = create<EditorState>()(
           const frames = targetFrames(s.selectedFrameIndices, s.currentFrameIndex, s.animation.elements.length)
           if (frames.length === 0) return s
           const v = Math.max(1, Math.round(value))
+          const oldTotalTicks = s.animation.elements.reduce((sum, e) => sum + e.duration, 0)
           const elements = [...s.animation.elements]
           for (const fi of frames) {
             if (elements[fi]) elements[fi] = { ...elements[fi], duration: v }
           }
           const totalTicks = elements.reduce((sum, e) => sum + e.duration, 0)
+          let phases = normalizePhaseMarkers(s.animation.phases, oldTotalTicks)
+          let timelineDelta = 0
+          for (const fi of [...frames].sort((a, b) => a - b)) {
+            const oldElement = s.animation.elements[fi]
+            if (!oldElement || oldElement.duration === v) continue
+            const frameStart = frameStartTick(s.animation.elements, fi) + timelineDelta
+            const stepTotal = oldTotalTicks + timelineDelta + v - oldElement.duration
+            phases = remapPhaseMarkersAfterDurationChange(
+              phases,
+              frameStart,
+              oldElement.duration,
+              v,
+              stepTotal
+            )
+            timelineDelta += v - oldElement.duration
+          }
           const clampedTick = Math.min(s.currentTick, totalTicks)
-          return { animation: { ...s.animation, elements, totalTicks }, currentTick: clampedTick }
+          return { animation: { ...s.animation, elements, totalTicks, phases }, currentTick: clampedTick }
         }),
 
       // 批量设置选中帧的轴点 offset（绝对值，所有选中帧设为同一 x/y）
@@ -815,10 +919,15 @@ export const useEditorStore = create<EditorState>()(
           if (remaining.length === 0) return s
           const elements = remaining.map((e, i) => ({ ...e, index: i }))
           const totalTicks = elements.reduce((sum, e) => sum + e.duration, 0)
+          const intervals = frames.map((fi) => {
+            const startTick = frameStartTick(s.animation.elements, fi)
+            return { startTick, endTick: startTick + s.animation.elements[fi].duration }
+          })
+          const phases = remapPhaseMarkersAfterRemovals(s.animation.phases, intervals, totalTicks)
           const newIndex = Math.min(s.currentFrameIndex, elements.length - 1)
           const newTick = Math.min(s.currentTick, Math.max(0, totalTicks - 1))
           return {
-            animation: { ...s.animation, elements, totalTicks },
+            animation: { ...s.animation, elements, totalTicks, phases },
             currentFrameIndex: Math.max(0, newIndex),
             currentTick: newTick,
             selectedFrameIndices: [Math.max(0, newIndex)],

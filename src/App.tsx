@@ -103,10 +103,13 @@ export default function App() {
 
       // Esc 取消选中
       if (e.key === 'Escape') {
-        const { selectedBoxId, selectBox } = useEditorStore.getState()
+        const { selectedBoxId, selectBox, selectedPhase, clearPhaseSelection } = useEditorStore.getState()
         if (selectedBoxId) {
           e.preventDefault()
           selectBox(null, null)
+        } else if (selectedPhase) {
+          e.preventDefault()
+          clearPhaseSelection()
         }
         return
       }

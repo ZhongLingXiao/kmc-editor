@@ -1,4 +1,5 @@
 import { AnimationData, SHOW_LAYER_KEYS, ShowLayers } from '../types/animation'
+import { normalizePhaseMarkers } from './phases'
 
 /** 规范化 showLayers：只保留 SHOW_LAYER_KEYS 中的字段，剥离过期字段，缺失字段补默认 true */
 function normalizeShowLayers(sl: Partial<Record<string, boolean>> | undefined): ShowLayers {
@@ -12,13 +13,15 @@ function normalizeShowLayers(sl: Partial<Record<string, boolean>> | undefined): 
  */
 export function buildExportData(animation: AnimationData, includeEditor: boolean = true): Record<string, unknown> {
   const totalTicks = animation.elements.reduce((sum, e) => sum + e.duration, 0)
-  const { editor, ...rest } = animation
+  const { editor, phases: rawPhases, ...rest } = animation
   // 清理 sprite 上的临时迁移字段，只保留 src/x/y/w/h
   const cleanElements = rest.elements.map((el) => {
     const s = el.sprite as any
     return { ...el, sprite: { src: s.src ?? '', x: s.x ?? 0, y: s.y ?? 0, w: s.w ?? 0, h: s.h ?? 0 } }
   })
-  const base = { ...rest, elements: cleanElements, totalTicks }
+  const base: Record<string, unknown> = { ...rest, elements: cleanElements, totalTicks }
+  const phases = normalizePhaseMarkers(rawPhases, totalTicks)
+  if (phases) base.phases = phases
   if (!includeEditor || !editor) return base
   return {
     ...base,
@@ -66,6 +69,11 @@ export function normalizeAnimationData(data: AnimationData): AnimationData {
       jcboxes: el.jcboxes || [],
     }
   })
+  const totalTicks = data.elements.reduce((sum, e) => sum + e.duration, 0)
+  const phases = normalizePhaseMarkers(data.phases, totalTicks)
+  if (phases) data.phases = phases
+  else delete data.phases
+  data.totalTicks = totalTicks
   if (data.editor?.showLayers) {
     data.editor.showLayers = normalizeShowLayers(data.editor.showLayers)
   }
