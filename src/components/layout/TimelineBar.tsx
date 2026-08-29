@@ -505,10 +505,17 @@ export default function TimelineBar() {
         {phaseSegments.length > 0 ? (
           phaseSegments.map((segment) => {
             const width = (segment.range.endTick - segment.range.startTick) * pxPerTick
+            const duration = segment.range.endTick - segment.range.startTick
+            const phaseText = width >= 76
+              ? `${segment.label} ${duration}t`
+              : width >= 44
+              ? segment.label
+              : null
             if (width <= 0) return null
             return (
-              <div
-                key={segment.name}
+              <Tooltip key={segment.name}>
+                <TooltipTrigger asChild>
+                  <div
                 className={cn(
                   'absolute bottom-0 top-0 flex items-center justify-center overflow-hidden border-x px-1 text-[10px] font-medium',
                   selectedPhase === segment.name
@@ -525,7 +532,6 @@ export default function TimelineBar() {
                     ? `inset 0 2px 0 ${segment.borderColor}, inset 0 -1px 0 ${segment.borderColor}`
                     : undefined,
                 }}
-                title={`${segment.label}: ${segment.range.endTick - segment.range.startTick} Tick`}
                 onPointerDown={(e) => {
                   e.stopPropagation()
                   setPlaying(false)
@@ -535,10 +541,16 @@ export default function TimelineBar() {
                   selectPhase(segment.name)
                 }}
               >
-                <span className="whitespace-nowrap">
-                  {segment.label} {segment.range.endTick - segment.range.startTick}t
-                </span>
-              </div>
+                {phaseText && <span className="whitespace-nowrap">{phaseText}</span>}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={4} className="px-2 py-1.5">
+                  <div className="flex flex-col gap-0.5 text-[11px]">
+                    <span className="font-medium">{segment.label}</span>
+                    <span>{duration} Tick · {segment.range.startTick}–{segment.range.endTick}</span>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
             )
           })
         ) : (
@@ -548,12 +560,12 @@ export default function TimelineBar() {
         )}
 
         {phaseBoundaries.map(({ boundary, tick }) => (
+          <Tooltip key={boundary}>
+            <TooltipTrigger asChild>
             <div
-              key={boundary}
               className="absolute bottom-0 top-0 z-20 w-2 cursor-ew-resize"
               style={{ left: tick * pxPerTick - 4 }}
               onPointerDown={(e) => handlePhaseBoundaryMouseDown(e, boundary)}
-              title={boundary === 'start' ? t('timeline.activeStart') : t('timeline.activeEnd')}
             >
               <div
                 className="absolute bottom-0 left-1/2 top-0 w-px -translate-x-1/2"
@@ -564,6 +576,11 @@ export default function TimelineBar() {
                 style={{ borderColor: boundary === 'start' ? COLORS.phaseActiveBorder : COLORS.phaseRecoveryBorder }}
               />
             </div>
+            </TooltipTrigger>
+            <TooltipContent side="top" sideOffset={4}>
+              {boundary === 'start' ? t('timeline.activeStart') : t('timeline.activeEnd')} · Tick {tick}
+            </TooltipContent>
+          </Tooltip>
         ))}
           </div>
         </ContextMenuTrigger>
@@ -606,19 +623,23 @@ export default function TimelineBar() {
             const width = elem.duration * pxPerTick
             const left = frameStartTicks[i] * pxPerTick
             return (
-              <div
-                key={i}
-                className={cn(
+              <Tooltip key={i}>
+                <TooltipTrigger asChild>
+                  <div
+                    className={cn(
                   'absolute flex h-full cursor-pointer flex-col justify-center overflow-hidden px-1 select-none bg-background hover:bg-accent',
                   i === highlightFrame && 'bg-accent'
-                )}
-                style={{ width, minWidth: 1, left }}
-                onClick={() => setFrame(i)}
-              >
-                {width >= 30 && (
+                    )}
+                    style={{ width, minWidth: 1, left }}
+                    onClick={() => setFrame(i)}
+                  >
+                {width >= 52 && (
                   <div className={cn('whitespace-nowrap text-[10px]', i === highlightFrame ? 'font-medium text-foreground' : 'text-muted-foreground')}>F{i}</div>
                 )}
-                {width >= 50 && <div className="whitespace-nowrap text-[10px] text-muted-foreground">{elem.duration}t</div>}
+                {width >= 52 && <div className="whitespace-nowrap text-[10px] text-muted-foreground">{elem.duration}t</div>}
+                {width >= 28 && width < 52 && (
+                  <div className={cn('whitespace-nowrap text-[10px]', i === highlightFrame ? 'font-medium text-foreground' : 'text-muted-foreground')}>F{i}</div>
+                )}
                 {/* 帧尾拖拽手柄：8px 透明命中区 + 1px 可见细线，hover/拖拽中变主色 */}
                 <div
                   className="group absolute right-[-4px] top-0 bottom-0 w-2 cursor-ew-resize"
@@ -632,7 +653,12 @@ export default function TimelineBar() {
                     )}
                   />
                 </div>
-              </div>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={4}>
+                  F{i} · {elem.duration} Tick
+                </TooltipContent>
+              </Tooltip>
             )
           })
         ) : (
