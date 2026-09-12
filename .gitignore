@@ -33,3 +33,6 @@ err.txt
 
 # TypeScript
 *.tsbuildinfo
+
+.tmp/
+.temp/
