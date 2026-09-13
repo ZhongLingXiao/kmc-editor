@@ -362,6 +362,24 @@ local cmds = {
             {keys = {{name = "jump"}}},
         },
     }),
+    -- Judgement Cut (次元斩): hold attack 蓄力 30 帧后松手
+    Command.new({
+        name = "judgement_cut",
+        time = 60, buffer_time = 5,
+        steps = {
+            {keys = {{name = "attack", hold = true, charge_time = 30}}},
+            {keys = {{name = "attack", release = true}}},
+        },
+    }),
+    -- Perfect Judgement Cut (完美次元斩): hold(15)+release，只在收刀闪光窗触发
+    Command.new({
+        name = "perfect_judgement_cut",
+        time = 10, buffer_time = 3,
+        steps = {
+            {keys = {{name = "attack", hold = true, charge_time = 15}}},
+            {keys = {{name = "attack", release = true}}},
+        },
+    }),
 }
 -- 命令名 -> cmd 对象（触发检查时按 inputForAction(entry.cmd) 查）
 local cmdsByName = {}
@@ -385,6 +403,8 @@ local actions = {
             {cmd = "void_slash", open = 13, priority = 5},
             {cmd = "upper_slash", open = 13, priority = 4},
             {cmd = "rapid_slash", open = 13, priority = 4},
+            {cmd = "judgement_cut", open = 13, priority = 5},
+            {cmd = "perfect_judgement_cut", open = 38, close = 45, priority = 6},
             {cmd = "yamato_a_2", open = 38, close = 59, priority = 1},
             {cmd = "yamato_a_1", open = 60, priority = 1},
             {cmd = "jump", open = 69, priority = 1},
@@ -398,6 +418,8 @@ local actions = {
             {cmd = "void_slash", open = 13, priority = 5},
             {cmd = "upper_slash", open = 13, priority = 4},
             {cmd = "rapid_slash", open = 13, priority = 4},
+            {cmd = "judgement_cut", open = 13, priority = 5},
+            {cmd = "perfect_judgement_cut", open = 38, close = 45, priority = 6},
             {cmd = "yamato_a_3", open = 38, close = 50, priority = 1},  -- 早段 → Combo A（快按）
             {cmd = "yamato_b_3", open = 51, close = 70, priority = 1},  -- 中段 → Combo B（停顿变招）
             {cmd = "yamato_a_1", open = 71, priority = 1},              -- 晚段 → 重开 A1（太晚错过变招）
@@ -412,6 +434,8 @@ local actions = {
             {cmd = "void_slash", open = 13, priority = 5},
             {cmd = "upper_slash", open = 13, priority = 4},
             {cmd = "rapid_slash", open = 13, priority = 4},
+            {cmd = "judgement_cut", open = 13, priority = 5},
+            {cmd = "perfect_judgement_cut", open = 38, close = 45, priority = 6},
             {cmd = "yamato_a_4", open = 38, close = 59, priority = 1},
             {cmd = "yamato_a_1", open = 60, priority = 1},
             {cmd = "jump", open = 69, priority = 1},
@@ -425,6 +449,8 @@ local actions = {
             {cmd = "void_slash", open = 15, priority = 5},
             {cmd = "upper_slash", open = 15, priority = 4},
             {cmd = "rapid_slash", open = 15, priority = 4},
+            {cmd = "judgement_cut", open = 15, priority = 5},
+            {cmd = "perfect_judgement_cut", open = 46, close = 53, priority = 6},
             {cmd = "yamato_a_1", open = 46, priority = 1},
             {cmd = "jump", open = 88, priority = 1},
         },
@@ -437,6 +463,8 @@ local actions = {
             {cmd = "void_slash", open = 15, priority = 5},
             {cmd = "upper_slash", open = 15, priority = 4},
             {cmd = "rapid_slash", open = 15, priority = 4},
+            {cmd = "judgement_cut", open = 15, priority = 5},
+            {cmd = "perfect_judgement_cut", open = 46, close = 53, priority = 6},
             {cmd = "yamato_a_1", open = 46, priority = 1},
             {cmd = "jump", open = 88, priority = 1},
         },
@@ -486,6 +514,20 @@ local actions = {
             {cmd = "jump", open = 42, priority = 1},
         },
     },
+    judgement_cut = {
+        name = "judgement_cut",
+        startup = 14, active = 8, recovery = 36,
+        cancel = {
+            {cmd = "perfect_judgement_cut", open = 51, close = 58, priority = 6},
+        },
+    },
+    perfect_judgement_cut = {
+        name = "perfect_judgement_cut",
+        startup = 6, active = 6, recovery = 22,
+        cancel = {
+            {cmd = "perfect_judgement_cut", open = 27, close = 34, priority = 6},
+        },
+    },
 }
 
 -- 给出“取消到某个动作”所需要的输入命令。
@@ -521,9 +563,10 @@ end
 -- 也会丢失“高优先命令取胜后清理低优先子集”的行为（如 D+J 时 rapid_slash 胜出并 clear attack）。
 local idleCancel = {
     {cmd = "void_slash",  priority = 5},
+    {cmd = "judgement_cut", priority = 5},
     {cmd = "upper_slash", priority = 4},
     {cmd = "rapid_slash", priority = 4},
-    {cmd = "yamato_a_1",  priority = 1},  -- attack 输入 → 起手 yamato_a_1
+    {cmd = "yamato_a_1",  priority = 1},
     {cmd = "jump",        priority = 1},
 }
 
@@ -534,6 +577,8 @@ local log = {}                  -- newest first; {frame, text, color}
 local inputHistory = {}         -- newest first; {frame, text, color}  按键按下/松开
 local paused = false
 local stepOnce = false
+local perfectChainCount = 0
+local MAX_PERFECT_CHAIN = 3
 
 local function addLog(text, col)
     table.insert(log, 1, {frame = frameCount, text = text, color = col})
@@ -625,6 +670,10 @@ function love.update(dt)
         local evt = Action.update(currentAction)
         if evt == "to_idle" then
             currentAction = nil
+            if perfectChainCount > 0 then
+                perfectChainCount = 0
+                addLog("perfect chain reset", {0.6, 0.6, 0.65})
+            end
             addLog("---- idle (f" .. frameCount .. ") ----", {0.4, 0.4, 0.45})
         end
     end
@@ -702,27 +751,38 @@ function love.update(dt)
         local cmdName = inputForAction(w.cmd)
         local cmd = cmdsByName[cmdName]
         if cmd and Command.isActive(cmd) then
-            -- 胜者（被触发的命令）
-            cmd._fired = true
-            cmd._peakBuf = cmd.cur_buffer_time
-            cmd.cur_buffer_time = 0  -- 消费胜者
-            -- 清理同帧匹配的子集命令（避免 cascade）
-            for _, sub in ipairs(cmds) do
-                if sub ~= cmd
-                   and sub.cur_buffer_time > 0              -- buffer 还活着就清（含预输入）
-                   and Command.isSubsetOf(sub, cmd)          -- 是胜者子集
-                then
-                    sub.cur_buffer_time = 0
-                    addLog("cleared subset " .. sub.name, {0.8, 0.5, 0.3})
+            if w.cmd == "perfect_judgement_cut" and perfectChainCount >= MAX_PERFECT_CHAIN then
+                addLog("perfect chain MAX (" .. perfectChainCount .. "), skip", {1, 0.5, 0.3})
+                cmd.cur_buffer_time = 0
+            else
+                -- 胜者（被触发的命令）
+                cmd._fired = true
+                cmd._peakBuf = cmd.cur_buffer_time
+                cmd.cur_buffer_time = 0  -- 消费胜者
+                -- 清理同帧匹配的子集命令（避免 cascade）
+                for _, sub in ipairs(cmds) do
+                    if sub ~= cmd
+                       and sub.cur_buffer_time > 0              -- buffer 还活着就清（含预输入）
+                       and Command.isSubsetOf(sub, cmd)          -- 是胜者子集
+                    then
+                        sub.cur_buffer_time = 0
+                        addLog("cleared subset " .. sub.name, {0.8, 0.5, 0.3})
+                    end
                 end
+                local prev = currentAction and currentAction.name or "idle"
+                -- ===== 第5步：执行技能（启动新动作）=====
+                -- dest 直接 = entry.cmd（entry 已经过窗口过滤，无需再反查 cancel 表）
+                currentAction = Action.new(actions[w.cmd])
+                Action.start(currentAction)
+                addLog("TRIGGER " .. cmd.name .. " -> " .. w.cmd .. "  (from " .. prev .. ")", {0.3, 1, 0.3})
+                if w.cmd == "perfect_judgement_cut" then
+                    perfectChainCount = perfectChainCount + 1
+                    addLog("perfect chain " .. perfectChainCount .. "/" .. MAX_PERFECT_CHAIN, {1, 0.75, 0.1})
+                else
+                    perfectChainCount = 0
+                end
+                break  -- 每帧只触发一个技能
             end
-            local prev = currentAction and currentAction.name or "idle"
-            -- ===== 第5步：执行技能（启动新动作）=====
-            -- dest 直接 = entry.cmd（entry 已经过窗口过滤，无需再反查 cancel 表）
-            currentAction = Action.new(actions[w.cmd])
-            Action.start(currentAction)
-            addLog("TRIGGER " .. cmd.name .. " → " .. w.cmd .. "  (from " .. prev .. ")", {0.3, 1, 0.3})
-            break  -- 每帧只触发一个技能
         end
     end
 
@@ -814,12 +874,18 @@ end
 -- 迷你条暗底=整条动作，亮色=可取消区段(open..close)，白竖线=当前帧。
 -- ● NOW = 当前帧落在窗口里（此刻能取消）。返回占用高度。
 local function drawCancelTracks(x, y, w, act)
-    local colFor = {rapid_slash = CYAN, upper_slash = CYAN, void_slash = CYAN, attack = GREEN, jump = YELLOW}
+    local colFor = {rapid_slash = CYAN, upper_slash = CYAN, void_slash = CYAN, attack = GREEN, jump = YELLOW, judgement_cut = {0.7, 0.3, 1}, perfect_judgement_cut = {1, 0.75, 0.1}}
     local absF = actionAbsFrame(act)
     local startY = y
-    -- 动作名简写（用于 range 列，避免和 NOW 列重叠）：yamato_a_3 → a3
+    -- 动作名简写（用于 name 列和 range 列，避免长名溢出遮挡）
     local function shortName(name)
-        return name:gsub("yamato_", "")
+        local s = name:gsub("yamato_", "")
+        s = s:gsub("perfect_judgement_cut", "pjc")
+        s = s:gsub("judgement_cut", "jc")
+        s = s:gsub("void_slash", "void")
+        s = s:gsub("rapid_slash", "rapid")
+        s = s:gsub("upper_slash", "upper")
+        return s
     end
     -- 按 max priority 降序收集 cname（同 priority 保持声明顺序）
     local byCname = {}
@@ -859,9 +925,9 @@ local function drawCancelTracks(x, y, w, act)
         local cname = item.name
         local wins = item.wins
         if #wins > 0 then
-            -- 名字
+            -- 名字（用简写避免长名溢出）
             setColor(colFor[cname])
-            love.graphics.print(cname, x, y)
+            love.graphics.print(shortName(cname), x, y)
             -- 迷你条：暗底(整条动作)
             love.graphics.setColor(0.16, 0.16, 0.18)
             love.graphics.rectangle("fill", barX, y + 3, barW, barH)
@@ -928,6 +994,8 @@ function love.draw()
     love.graphics.print("== Input / Buffer / Command / Action  Debug ==", 12, y); y = y + 20
     printKeyline(y, 12, 22, {
         {"J=", "attack", GREEN},
+        {"holdJ=", "judgement_cut", {0.7, 0.3, 1}},
+        {"flash+relJ=", "perfect_judgement_cut", {1, 0.75, 0.1}},
         {"D+J=", "rapid_slash", CYAN},
         {"A+J=", "upper_slash", CYAN},
         {"ADJ=", "void_slash", CYAN},
@@ -958,6 +1026,11 @@ function love.draw()
     if hitstop > 0 then
         setColor(RED)
         love.graphics.print("[ HITSTOP " .. hitstop .. " ]", 1200, 26)
+    end
+    if perfectChainCount > 0 then
+        local c = perfectChainCount >= MAX_PERFECT_CHAIN and RED or {1, 0.75, 0.1}
+        setColor(c)
+        love.graphics.print("[ PERFECT CHAIN " .. perfectChainCount .. "/" .. MAX_PERFECT_CHAIN .. " ]", 1200, 44)
     end
 
     -- ===== 双列布局：左列=系统主链，右列=输入观测+日志 =====
@@ -1066,7 +1139,7 @@ function love.draw()
         local ch = drawCancelTracks(LX, yL, 880, currentAction)
         yL = yL + ch + 4
     else
-        setColor(GRAY); love.graphics.print("(idle — no action to cancel)", LX, yL); yL = yL + 18
+        setColor(GRAY); love.graphics.print("(idle - no action to cancel)", LX, yL); yL = yL + 18
     end
     setColor(currentAction and YELLOW or GRAY)
     love.graphics.print(currentAction and currentAction.name or "idle", LX + 708, yL)
