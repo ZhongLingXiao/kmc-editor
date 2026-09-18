@@ -32,11 +32,11 @@ local gamepadMap = {
     right   = {"dpright"},
     up      = {"dpup"},
     down    = {"dpdown"},
-    attack  = {"x", "rightshoulder"},          -- X 或 RB
-    jump    = {"a"},                           -- A
-    shoot   = {"y", "righttrigger"},            -- Y 或 RT
-    lock    = {"leftshoulder", "lefttrigger"},  -- LB 或 LT
-    special = {"b"},                           -- B
+    attack  = {"x"},
+    jump    = {"a"},
+    shoot   = {"y"},
+    lock    = {"leftshoulder"},
+    special = {"b"},
 }
 -- 左摇杆死区（避免静止漂移触发方向）
 local STICK_DEADZONE = 0.25
@@ -157,6 +157,7 @@ function Command.new(def)
         time = def.time or 15,
         buffer_time = def.buffer_time or 1,
         steps = def.steps,
+        requires_lock = def.requires_lock or false,   -- 锁定修饰键：true 时必须按住 lock 才能匹配新步骤
         completed = {},
         step_timers = {},
         cur_time = 0,
@@ -240,13 +241,19 @@ function Command.step(cmd, b, hitstop)
     end
 
     -- 4. 匹配 step（从后往前，避免一次输入满足两步）
-    for i = #cmd.steps, 1, -1 do
-        if i == 1 or cmd.completed[i - 1] then
-            if not cmd.completed[i] and Command.matchStep(cmd.steps[i], b) then
-                cmd.completed[i] = true
-                cmd.step_timers[i] = 0
-                if i > 1 then cmd.completed[i - 1] = false end
-                if i == 1 then cmd.cur_time = 0 end
+    --    requires_lock 门控：lock 没按住时不匹配新步骤。
+    --    已完成的步骤和 cur_buffer_time 不受影响——已输入完的锁定技指令，
+    --    即使松开 lock 仍能在 cancel 窗口里触发（不会因松手而消失）。
+    local lockHeld = (b["lock"] or 0) > 0
+    if not (cmd.requires_lock and not lockHeld) then
+        for i = #cmd.steps, 1, -1 do
+            if i == 1 or cmd.completed[i - 1] then
+                if not cmd.completed[i] and Command.matchStep(cmd.steps[i], b) then
+                    cmd.completed[i] = true
+                    cmd.step_timers[i] = 0
+                    if i > 1 then cmd.completed[i - 1] = false end
+                    if i == 1 then cmd.cur_time = 0 end
+                end
             end
         end
     end
@@ -321,6 +328,7 @@ local cmds = {
     -- Void Slash: 后→前+攻击 (A, D, J) —— 斩裂时空（3步，最具体）
     Command.new({
         name = "void_slash",
+        requires_lock = true,
         time = 60, buffer_time = 20,   -- 特殊技短 buffer：意图即执行
         steps = {
             {keys = {{name = "left"}}},
@@ -331,6 +339,7 @@ local cmds = {
     -- Upper Slash: 后+攻击 (hold A + J) —— launcher 上挑（2键）
     Command.new({
         name = "upper_slash",
+        requires_lock = true,
         time = 20, buffer_time = 20,
         steps = {
             {keys = {{name = "left", hold = true}, {name = "attack"}}},
@@ -339,6 +348,7 @@ local cmds = {
     -- Rapid Slash: 前+攻击 (hold D + J) —— 突进斩（2键）
     Command.new({
         name = "rapid_slash",
+        requires_lock = true,
         time = 20, buffer_time = 20,
         steps = {
             {keys = {{name = "right", hold = true}, {name = "attack"}}},
@@ -996,16 +1006,16 @@ function love.draw()
         {"J=", "attack", GREEN},
         {"holdJ=", "judgement_cut", {0.7, 0.3, 1}},
         {"flash+relJ=", "perfect_judgement_cut", {1, 0.75, 0.1}},
-        {"D+J=", "rapid_slash", CYAN},
-        {"A+J=", "upper_slash", CYAN},
-        {"ADJ=", "void_slash", CYAN},
+        {"O+D+J=", "rapid_slash", CYAN},
+        {"O+A+J=", "upper_slash", CYAN},
+        {"O+ADJ=", "void_slash", CYAN},
         {"L=", "jump", YELLOW},
     }); y = y + 16
     printKeyline(y, 12, 22, {
         {"X=", "attack", GREEN},
-        {"R+X=", "rapid_slash", CYAN},
-        {"L+X=", "upper_slash", CYAN},
-        {"L>R+X=", "void_slash", CYAN},
+        {"LB+R+X=", "rapid_slash", CYAN},
+        {"LB+L+X=", "upper_slash", CYAN},
+        {"LB+L>R+X=", "void_slash", CYAN},
         {"A=", "jump", YELLOW},
     }); y = y + 16
     printKeyline(y, 12, 22, {
@@ -1185,7 +1195,7 @@ function love.draw()
 
     -- ===== RAW GAMEPAD（右列；live; Xbox layout）=====
     setColor(CYAN)
-    love.graphics.print("-- RAW GAMEPAD (live; Xbox: LS/DPad=move, X/RB=atk, A=jump, Y/RT=shoot, LB/LT=lock, B=special) --", RX, yR)
+    love.graphics.print("-- RAW GAMEPAD (live; Xbox: LS/DPad=move, X=atk, A=jump, Y=shoot, LB/LT=lock, B=special) --", RX, yR)
     yR = yR + 16
     if #gamepads == 0 then
         setColor(GRAY); love.graphics.print("(no gamepad connected)", RX, yR); yR = yR + 16
