@@ -38,8 +38,9 @@ local function loadRoom(index)
 end
 
 local function runTests()
-    local ok, result = pcall(Tests.run)
-    return ok, ok and result or result
+    local ok, passed, message = pcall(Tests.run)
+    if not ok then return false, passed end
+    return passed, message
 end
 
 function love.load(args)
@@ -64,9 +65,14 @@ function love.load(args)
     end
     if testMode then
         local ok, result = runTests()
-        print(ok and ("PASS: " .. result) or ("FAIL: " .. result))
-        if not ok then error(result) end
-        love.event.quit()
+        local message = ok and ("PASS: " .. tostring(result)) or ("FAIL: " .. tostring(result))
+        print(message)
+        local file = io.open("test-result.txt", "w")
+        if file then
+            file:write(message)
+            file:close()
+        end
+        love.event.quit(ok and 0 or 1)
     end
 end
 
@@ -115,6 +121,7 @@ function love.draw()
 
     local x, y, scale = viewport()
     love.graphics.clear(0.02, 0.02, 0.04, 1)
+    love.graphics.setColor(1, 1, 1, 1)
     love.graphics.draw(canvas, x, y, 0, scale, scale)
 end
 

@@ -5,7 +5,7 @@ local Player = {}
 Player.__index = Player
 
 local P = Config.physics
-local PI = math.pi
+local NORMAL_H = Config.player.height
 
 local function approach(value, target, amount)
     if value < target then return math.min(value + amount, target) end
@@ -19,18 +19,20 @@ local function sign(value)
     return 0
 end
 
-local function clamp(value, low, high)
-    return math.max(low, math.min(high, value))
-end
-
-local function normalize(x, y)
-    local length = math.sqrt(x * x + y * y)
-    if length == 0 then return 0, 0 end
-    return x / length, y / length
-end
-
-local function lerp(a, b, amount)
-    return a + (b - a) * amount
+local function snapAim(x, y)
+    if x == 0 and y == 0 then return 1, 0 end
+    local step = math.pi / 4
+    local snapped = math.floor(math.atan2(y, x) / step + 0.5) * step
+    local sx, sy = math.cos(snapped), math.sin(snapped)
+    if math.abs(sx) < 0.01 then sx = 0 end
+    if math.abs(sy) < 0.01 then sy = 0 end
+    if math.abs(sx) > 0.99 then sx = sign(sx) end
+    if math.abs(sy) > 0.99 then sy = sign(sy) end
+    if sx ~= 0 and sy ~= 0 then
+        sx = sign(sx) * math.cos(math.pi / 4)
+        sy = sign(sy) * math.sin(math.pi / 4)
+    end
+    return sx, sy
 end
 
 function Player.new(x, y)
@@ -40,7 +42,7 @@ function Player.new(x, y)
         spawnX = x,
         spawnY = y,
         w = Config.player.width,
-        h = Config.player.height,
+        h = NORMAL_H,
         vx = 0,
         vy = 0,
         facing = 1,
@@ -55,6 +57,7 @@ function Player.new(x, y)
         ducking = false,
 
         onGround = false,
+        wasOnGround = false,
         groundPlatform = nil,
         wallSlideDir = 0,
         jumpGraceTimer = 0,
@@ -71,6 +74,13 @@ function Player.new(x, y)
         forceMoveX = 0,
         forceMoveXTimer = 0,
         maxFall = P.maxFall,
+        liftX = 0,
+        liftY = 0,
+        carriedPlatform = nil,
+        wallBoostTimer = 0,
+        wallBoostDir = 0,
+        hopWaitX = 0,
+        hopWaitXSpeed = 0,
 
         dashes = Config.player.maxDashes,
         maxDashes = Config.player.maxDashes,
@@ -96,6 +106,7 @@ function Player.new(x, y)
         boostRed = false,
         dreamDashTimer = 0,
         dreamJump = false,
+        hitSquashTimer = 0,
         specialTimer = 0,
         specialVx = 0,
         specialVy = 0,
@@ -140,7 +151,9 @@ end
 
 function Player:respawn()
     self.x, self.y = self.spawnX, self.spawnY
+    self.h = NORMAL_H
     self.vx, self.vy = 0, 0
+    self.ducking = false
     self.state = "normal"
     self.stateId = StateIds.normal
     self.previousState = "normal"
@@ -149,15 +162,23 @@ function Player:respawn()
     self.dead = false
     self.deathTimer = 0
     self.onGround = false
+    self.wasOnGround = false
     self.jumpGraceTimer = 0
     self.jumpBufferTimer = 0
     self.varJumpTimer = 0
+    self.autoJump = false
+    self.autoJumpTimer = 0
     self.dashes = self.maxDashes
     self.stamina = self.maxStamina
     self.tired = false
     self.wallSlideTimer = P.wallSlideTime
+    self.wallBoostTimer = 0
+    self.hopWaitX = 0
+    self.liftX, self.liftY = 0, 0
     self.landingTimer = 0
     self.specialTimer = 0
+    self.dashAttackTimer = 0
+    self.redDash = false
     self.hairColor = Config.colors.redHair
 end
 
@@ -173,6 +194,66 @@ function Player:die()
     end
 end
 
+function Player:_liftBoost()
+    local x, y = self.liftX, self.liftY
+    if math.abs(x) > P.liftXCap then x = P.liftXCap * sign(x) end
+    if y > 0 then
+        y = 0
+    elseif y < P.liftYCap then
+        y = P.liftYCap
+    end
+    return x, y
+end
+
+function Player:_isTired()
+    local stamina = self.stamina
+    if self.wallBoostTimer > 0 then stamina = stamina + P.climbJumpCost end
+    return stamina < P.climbTiredThreshold
+end
+
+function Player:_dashAttacking()
+    return self.dashAttackTimer > 0 or self.state == "red_dash"
+end
+
+function Player:canUnDuck(world, x, y)
+    if not self.ducking then return true end
+    if not world then return true end
+    x = x or self.x
+    y = y or self.y
+    local top = y - (NORMAL_H - self.h)
+    return world:solidAt(x, top, self.w, NORMAL_H) == nil
+end
+
+function Player:_setDucking(world, value)
+    if value == self.ducking then return true end
+    local shrink = NORMAL_H - P.duckHeight
+    if value then
+        self.y = self.y + shrink
+        self.h = P.duckHeight
+        self.ducking = true
+        return true
+    end
+    if world and not self:canUnDuck(world) then return false end
+    self.y = self.y - shrink
+    self.h = NORMAL_H
+    self.ducking = false
+    return true
+end
+
+function Player:_duckFreeAt(world, x, y)
+    local feet = y + self.h
+    local top = feet - P.duckHeight
+    return world:solidAt(x, top, self.w, P.duckHeight) == nil
+end
+
+function Player:_waterShifted(world, dy)
+    return world:waterAt(self.x, self.y + dy, self.w, self.h)
+end
+
+function Player:_swimCheck(world)
+    return self:_waterShifted(world, 0) and self:_waterShifted(world, -8)
+end
+
 function Player:_move(world, dx, dy, ignoreJumpThru)
     local wasGrounded = self.onGround
     local result = world:move(self, dx, dy, ignoreJumpThru)
@@ -182,17 +263,43 @@ function Player:_move(world, dx, dy, ignoreJumpThru)
     end
 
     if result.hitWall then
-        self.wallSpeedRetained = self.vx
-        self.wallSpeedRetentionTimer = P.wallSpeedRetentionTime
-        self.vx = 0
-    end
-    if result.y.hitCeiling then
-        self.vy = math.max(0, self.vy)
-        if self.varJumpTimer < P.varJumpTime - P.ceilingVarJumpGrace then
-            self.varJumpTimer = 0
+        if not self:_dashWallCorrect(world, result.x.direction) then
+            if self.wallSpeedRetentionTimer <= 0 then
+                self.wallSpeedRetained = self.vx
+                self.wallSpeedRetentionTimer = P.wallSpeedRetentionTime
+            end
+            self.vx = 0
+            self.dashAttackTimer = 0
+            if self.state == "red_dash" then self:_enterHitSquash() end
         end
     end
-    if result.hitFloor and self.vy > 0 then self.vy = 0 end
+
+    if result.y.hitCeiling then
+        if not (self.vy < 0 and self:_upwardCornerCorrect(world)) then
+            if self.vy < 0 and self.varJumpTimer < P.varJumpTime - P.ceilingVarJumpGrace then
+                self.varJumpTimer = 0
+            end
+            self.dashAttackTimer = 0
+            self.vy = math.max(0, self.vy)
+            if self.state == "red_dash" then self:_enterHitSquash() end
+        end
+    end
+
+    if result.hitFloor and self.vy > 0 and not self:_dashDropCorner(world) then
+        if (self.state == "dash" or self.state == "red_dash")
+            and self.dashDirX ~= 0 and self.dashDirY > 0
+        then
+            self.dashDirX = sign(self.dashDirX)
+            self.dashDirY = 0
+            self.vy = 0
+            self.vx = self.vx * P.dodgeSlideSpeedMult
+            self:_setDucking(world, true)
+        else
+            self.vy = 0
+        end
+        self.dashAttackTimer = 0
+        if self.state == "red_dash" then self:_enterHitSquash() end
+    end
 
     if not wasGrounded and self.onGround then
         self.landingTimer = 0.10
@@ -201,18 +308,75 @@ function Player:_move(world, dx, dy, ignoreJumpThru)
     return result
 end
 
+function Player:_dashWallCorrect(world, direction)
+    if self.state ~= "dash" and self.state ~= "red_dash" then return false end
+    local dir = direction ~= 0 and direction or sign(self.vx)
+    if dir == 0 then return false end
+    if self.onGround and self:_duckFreeAt(world, self.x + dir, self.y) then
+        self:_setDucking(world, true)
+        return true
+    end
+    if self.vy ~= 0 then return false end
+    for i = 1, P.dashCornerCorrection do
+        for _, vertical in ipairs({ i, -i }) do
+            if world:solidAt(self.x + dir, self.y + vertical, self.w, self.h) == nil then
+                self.y = self.y + vertical
+                self.x = self.x + dir
+                return true
+            end
+        end
+    end
+    return false
+end
+
+function Player:_dashDropCorner(world)
+    if self.state ~= "dash" and self.state ~= "red_dash" then return false end
+    if self.dashStartedOnGround then return false end
+    local function slip(dir)
+        for i = 1, P.dashCornerCorrection do
+            local probe = { x = self.x + i * dir, y = self.y, w = self.w, h = self.h }
+            if not world:isGrounded(probe) then
+                self.x = probe.x
+                self.y = self.y + 1
+                return true
+            end
+        end
+        return false
+    end
+    if self.vx <= 0 and slip(-1) then return true end
+    if self.vx >= 0 and slip(1) then return true end
+    return false
+end
+
+function Player:_upwardCornerCorrect(world)
+    if self.vy >= 0 then return false end
+    local function lift(dir)
+        for i = 1, P.upwardCornerCorrection do
+            if world:solidAt(self.x + i * dir, self.y - 1, self.w, self.h) == nil then
+                self.x = self.x + i * dir
+                self.y = self.y - 1
+                return true
+            end
+        end
+        return false
+    end
+    if self.vx <= 0 and lift(-1) then return true end
+    if self.vx >= 0 and lift(1) then return true end
+    return false
+end
+
 function Player:_updateGround(world, dt)
+    self.wasOnGround = self.onGround
     local grounded, platform = world:isGrounded(self)
     self.onGround = grounded
     self.groundPlatform = platform
     if grounded then
+        self.dreamJump = false
         self.jumpGraceTimer = P.jumpGraceTime
         self.wallSlideTimer = P.wallSlideTime
-        self.dashes = self.maxDashes
         self.stamina = self.maxStamina
         self.tired = false
-        self.autoJump = false
-        self.maxFall = P.maxFall
+        if self.state ~= "climb" then self.autoJump = false end
     else
         self.jumpGraceTimer = math.max(0, self.jumpGraceTimer - dt)
     end
@@ -222,16 +386,47 @@ function Player:_updateTimers(dt)
     self.stateTime = self.stateTime + dt
     self.animTime = self.animTime + dt
     self.jumpBufferTimer = math.max(0, self.jumpBufferTimer - dt)
-    self.jumpGraceTimer = math.max(0, self.jumpGraceTimer - dt)
     self.varJumpTimer = math.max(0, self.varJumpTimer - dt)
     self.dashCooldownTimer = math.max(0, self.dashCooldownTimer - dt)
     self.dashRefillCooldownTimer = math.max(0, self.dashRefillCooldownTimer - dt)
     self.dashAttackTimer = math.max(0, self.dashAttackTimer - dt)
     self.landingTimer = math.max(0, self.landingTimer - dt)
-    self.autoJumpTimer = math.max(0, self.autoJumpTimer - dt)
     self.forceMoveXTimer = math.max(0, self.forceMoveXTimer - dt)
-    self.wallSpeedRetentionTimer = math.max(0, self.wallSpeedRetentionTimer - dt)
-    if self.wallSpeedRetentionTimer <= 0 then self.wallSpeedRetained = 0 end
+    if self.autoJumpTimer > 0 then
+        if self.autoJump then
+            self.autoJumpTimer = self.autoJumpTimer - dt
+            if self.autoJumpTimer <= 0 then self.autoJump = false end
+        else
+            self.autoJumpTimer = 0
+        end
+    end
+end
+
+function Player:_updateWallRetention(world, dt)
+    if self.wallSpeedRetentionTimer <= 0 then return end
+    if self.vx ~= 0 and sign(self.vx) == -sign(self.wallSpeedRetained) then
+        self.wallSpeedRetentionTimer = 0
+        return
+    end
+    local dir = sign(self.wallSpeedRetained)
+    if dir ~= 0 and not world:wallCheck(self, dir, 1) then
+        self.vx = self.wallSpeedRetained
+        self.wallSpeedRetentionTimer = 0
+    else
+        self.wallSpeedRetentionTimer = math.max(0, self.wallSpeedRetentionTimer - dt)
+    end
+end
+
+function Player:_updateHopWait(world)
+    if self.hopWaitX == 0 then return end
+    if (self.vx ~= 0 and sign(self.vx) == -self.hopWaitX) or self.vy > 0 then
+        self.hopWaitX = 0
+        return
+    end
+    if not world:wallCheck(self, self.hopWaitX, 1) then
+        self.vx = self.hopWaitXSpeed
+        self.hopWaitX = 0
+    end
 end
 
 function Player:_updateHairColor()
@@ -257,35 +452,66 @@ function Player:_horizontalInput(input)
     return input:axis()
 end
 
-function Player:_tryJump(world, input)
-    if self.jumpBufferTimer <= 0 then return false end
+function Player:_wallJumpCheck(world, dir)
+    return world:wallCheck(self, dir, P.wallJumpCheckDist)
+end
 
-    if self.onGround or self.jumpGraceTimer > 0 then
-        self:jump(input)
-        input:consume("jump")
+function Player:_enterHitSquash()
+    self.hitSquashTimer = P.hitSquashNoMoveTime
+    self.dashAttackTimer = 0
+    self:setState("hit_squash")
+end
+
+function Player:_beginClimb()
+    self.autoJump = false
+    self.vx = 0
+    self.vy = self.vy * P.climbGrabYMult
+    self.wallSlideTimer = P.wallSlideTime
+    self.climbNoMoveTimer = P.climbNoMoveTime
+    self.wallBoostTimer = 0
+    self.ducking = false
+    if self.h ~= NORMAL_H then
+        self.y = self.y - (NORMAL_H - self.h)
+        self.h = NORMAL_H
+    end
+    self:setState("climb")
+    self.wallSlideDir = self.facing
+end
+
+function Player:_tryStartClimb(world, input, moveX)
+    if not input:held("grab") or self:_isTired() or self.ducking then return false end
+    if self.vy < 0 or sign(self.vx) == -self.facing then return false end
+    if world:wallCheck(self, self.facing, 2) then
+        self:_beginClimb()
         return true
     end
-
-    if world:wallCheck(self, -1, P.wallJumpCheckDist) then
-        self:wallJump(1)
-        self.jumpBufferTimer = 0
-        input:consume("jump")
-        return true
-    elseif world:wallCheck(self, 1, P.wallJumpCheckDist) then
-        self:wallJump(-1)
-        self.jumpBufferTimer = 0
-        input:consume("jump")
-        return true
+    local moveY = 0
+    if input:held("up") then moveY = -1 end
+    if input:held("down") then moveY = 1 end
+    if moveY >= 1 then return false end
+    for i = 1, 2 do
+        if world:solidAt(self.x, self.y - i, self.w, self.h) == nil then
+            local probe = { x = self.x, y = self.y - i, w = self.w, h = self.h }
+            if world:wallCheck(probe, self.facing, 2) then
+                self.y = self.y - i
+                self:_beginClimb()
+                return true
+            end
+        end
     end
-    return false
+    return moveX ~= nil and false
 end
 
 function Player:jump(input)
+    local moveX = self:_horizontalInput(input)
+    local lx, ly = self:_liftBoost()
     self.jumpGraceTimer = 0
     self.varJumpTimer = P.varJumpTime
     self.autoJump = false
-    self.vy = P.jumpSpeed
-    self.vx = self.vx + P.jumpHBoost * self:_horizontalInput(input)
+    self.dashAttackTimer = 0
+    self.wallBoostTimer = 0
+    self.vy = P.jumpSpeed + ly
+    self.vx = self.vx + P.jumpHBoost * moveX + lx
     self.varJumpSpeed = self.vy
     self.onGround = false
     self.jumpBufferTimer = 0
@@ -295,63 +521,136 @@ function Player:jump(input)
     if self.effects then self.effects:dust(self.x + self.w / 2, self.y + self.h, 4) end
 end
 
-function Player:wallJump(direction)
-    self.ducking = false
+function Player:wallJump(direction, input)
+    self:_setDucking(nil, false)
+    local moveX = input and input:axis() or 0
     self.jumpGraceTimer = 0
     self.varJumpTimer = P.varJumpTime
     self.autoJump = false
-    self.vx = P.wallJumpHSpeed * direction
-    self.vy = P.jumpSpeed
-    self.varJumpSpeed = self.vy
-    self.forceMoveX = direction
-    self.forceMoveXTimer = P.wallJumpForceTime
+    self.dashAttackTimer = 0
     self.wallSlideTimer = P.wallSlideTime
+    self.wallBoostTimer = 0
     self.wallSpeedRetentionTimer = 0
+    if moveX ~= 0 then
+        self.forceMoveX = direction
+        self.forceMoveXTimer = P.wallJumpForceTime
+    end
+    local lx, ly = self:_liftBoost()
+    self.vx = P.wallJumpHSpeed * direction + lx
+    self.vy = P.jumpSpeed + ly
+    self.varJumpSpeed = self.vy
     self.onGround = false
+    self.jumpBufferTimer = 0
     self:setState("normal")
     if self.effects then
         self.effects:dust(self.x + self.w / 2 - direction * 2, self.y + self.h / 2, 4)
     end
 end
 
+function Player:superWallJump(direction)
+    self:_setDucking(nil, false)
+    local lx, ly = self:_liftBoost()
+    self.jumpGraceTimer = 0
+    self.varJumpTimer = P.superWallJumpVarTime
+    self.autoJump = false
+    self.dashAttackTimer = 0
+    self.wallSlideTimer = P.wallSlideTime
+    self.wallBoostTimer = 0
+    self.vx = P.superWallJumpH * direction + lx
+    self.vy = P.superWallJumpSpeed + ly
+    self.varJumpSpeed = self.vy
+    self.onGround = false
+    self.jumpBufferTimer = 0
+    self:setState("normal")
+    if self.effects then
+        self.effects:dust(self.x + self.w / 2 - direction * 2, self.y + self.h / 2, 4)
+    end
+end
+
+function Player:climbJump(input)
+    if not self.onGround then
+        self.stamina = self.stamina - P.climbJumpCost
+    end
+    local moveX = input and input:axis() or 0
+    self.dreamJump = false
+    self:jump(input)
+    if moveX == 0 then
+        self.wallBoostDir = -self.facing
+        self.wallBoostTimer = P.climbJumpBoostTime
+    end
+end
+
 function Player:superJump(input)
+    local lx, ly = self:_liftBoost()
     self.jumpGraceTimer = 0
     self.varJumpTimer = P.varJumpTime
-    self.autoJump = true
-    self.vx = P.maxRun * 2.8 * self.facing
-    self.vy = P.jumpSpeed
+    self.autoJump = false
+    self.dashAttackTimer = 0
+    self.wallSlideTimer = P.wallSlideTime
+    self.wallBoostTimer = 0
+    self.vx = P.superJumpH * self.facing + lx
+    self.vy = P.jumpSpeed + ly
+    if self.ducking then
+        self:_setDucking(nil, false)
+        self.vx = self.vx * P.duckSuperJumpXMult
+        self.vy = self.vy * P.duckSuperJumpYMult
+    end
     self.varJumpSpeed = self.vy
+    self.onGround = false
+    self.jumpBufferTimer = 0
     self:setState("normal")
-    input:consume("jump")
+    if input then input:consume("jump") end
+    if self.effects then self.effects:dust(self.x + self.w / 2, self.y + self.h, 4) end
+end
+
+function Player:climbHop()
+    self.vy = math.min(self.vy, P.climbHopY)
+    self.hopWaitX = self.facing
+    self.hopWaitXSpeed = self.facing * P.climbHopX
+    self.forceMoveX = 0
+    self.forceMoveXTimer = P.climbHopForceTime
+    self:setState("normal")
 end
 
 function Player:bounce(world, speed)
+    if self.ducking then self:_setDucking(world, false) end
+    self.dashes = self.maxDashes
+    self.stamina = self.maxStamina
     self.vy = speed or P.bounceSpeed
     self.varJumpTimer = 0.20
     self.varJumpSpeed = self.vy
     self.autoJump = true
     self.autoJumpTimer = 0.10
+    self.dashAttackTimer = 0
+    self.wallBoostTimer = 0
     self.onGround = false
     self:setState("normal")
 end
 
 function Player:rebound(speedX, speedY)
+    self.dashes = self.maxDashes
+    self.stamina = self.maxStamina
     self.vx = speedX or P.reboundSpeedX
     self.vy = speedY or P.reboundSpeedY
     self.varJumpTimer = 0.15
     self.varJumpSpeed = self.vy
     self.autoJump = true
+    self.autoJumpTimer = 0
+    self.dashAttackTimer = 0
     self.onGround = false
     self:setState("normal")
 end
 
 function Player:launch(directionX, directionY)
-    local x, y = normalize(directionX or 0, directionY or -1)
+    local length = math.sqrt((directionX or 0) ^ 2 + (directionY or -1) ^ 2)
+    local x = length == 0 and 0 or (directionX or 0) / length
+    local y = length == 0 and -1 or (directionY or -1) / length
     self.vx = x * P.launchSpeed
     self.vy = y * P.launchSpeed
     self.varJumpTimer = 0.20
     self.varJumpSpeed = self.vy
     self.autoJump = true
+    self.autoJumpTimer = 0
     self:setState("normal")
 end
 
@@ -361,26 +660,32 @@ function Player:enterBoost(mode)
     self.boostTargetY = self.y + self.h / 2
     self.boostTimer = P.boostTime
     self.vx, self.vy = 0, 0
-    self:setState("boost")
     self.dashes = self.maxDashes
     self.stamina = self.maxStamina
+    self:setState("boost")
 end
 
-function Player:_startDash(input)
-    if self.dashCooldownTimer > 0 or self.dashes <= 0 then return false end
-    local dx, dy = input:aim(self.facing)
-    self.dashes = math.max(0, self.dashes - 1)
+function Player:_canDash()
+    return self.dashCooldownTimer <= 0 and self.dashes > 0
+end
+
+function Player:_armDash(red)
+    self.redDash = red and true or false
+    self.dashInitialized = false
+    self.dashTimer = P.dashTime
     self.dashCooldownTimer = P.dashCooldown
     self.dashRefillCooldownTimer = P.dashRefillCooldown
     self.dashAttackTimer = P.dashAttackTime
     self.dashStartedOnGround = self.onGround
-    self.beforeDashVx, self.beforeDashVy = self.vx, self.vy
-    self.dashDirX, self.dashDirY = dx, dy
-    self.dashTimer = P.dashTime
-    self.dashInitialized = true
-    self.vx, self.vy = dx * P.dashSpeed, dy * P.dashSpeed
-    self.onGround = false
+    self.vx, self.vy = 0, 0
     self:setState(self.redDash and "red_dash" or "dash")
+end
+
+function Player:_startDash(input)
+    if not self:_canDash() then return false end
+    self.beforeDashVx, self.beforeDashVy = self.vx, self.vy
+    self.dashes = math.max(0, self.dashes - 1)
+    self:_armDash(self.redDash)
     input:consume("dash")
     if self.effects then
         self.effects:burst(self.x + self.w / 2, self.y + self.h / 2, 8, "dash")
@@ -388,204 +693,306 @@ function Player:_startDash(input)
     return true
 end
 
+function Player:_applyDashSpeed(world)
+    local dx, dy = snapAim(self.dashDirX, self.dashDirY)
+    local vx = dx * P.dashSpeed
+    local vy = dy * P.dashSpeed
+    if self.state ~= "red_dash"
+        and sign(self.beforeDashVx) == sign(vx)
+        and math.abs(self.beforeDashVx) > math.abs(vx)
+    then
+        vx = self.beforeDashVx
+    end
+    if world:inWater(self) then
+        vx = vx * P.swimDashSpeedMult
+        vy = vy * P.swimDashSpeedMult
+    end
+    self.dashDirX, self.dashDirY = dx, dy
+    self.vx, self.vy = vx, vy
+    if dx ~= 0 then self.facing = sign(dx) end
+    if self.onGround and dx ~= 0 and dy > 0 and vy > 0 then
+        local dreamBelow = world:findDreamBlock(self, { x = 0, y = 1 })
+        if not dreamBelow then
+            self.dashDirX = sign(dx)
+            self.dashDirY = 0
+            self.vy = 0
+            self.vx = self.vx * P.dodgeSlideSpeedMult
+            self:_setDucking(world, true)
+        end
+    end
+    if not self.onGround and self.ducking and self:canUnDuck(world) then
+        self:_setDucking(world, false)
+    end
+end
+
 function Player:_endDash()
+    self.autoJump = true
+    self.autoJumpTimer = 0
     if self.dashDirY <= 0 then
         self.vx = self.dashDirX * P.endDashSpeed
         self.vy = self.dashDirY * P.endDashSpeed
         if self.vy < 0 then self.vy = self.vy * P.endDashUpMult end
-    else
-        self.vx = 0
-        self.vy = 0
     end
-    self.autoJump = true
-    self.autoJumpTimer = 0
     self:setState("normal")
 end
 
-function Player:_dashCornerCorrect(world)
-    for distance = 1, P.dashCornerCorrection do
-        for _, vertical in ipairs({ -distance, distance }) do
-            if not world:solidAt(self.x, self.y + vertical, self.w, self.h) then
-                self.y = self.y + vertical
-                return true
-            end
+function Player:_dashJumpTech(world, input)
+    if not input:pressed("jump") and self.jumpBufferTimer <= 0 then return false end
+    if self.ducking and not self:canUnDuck(world) then return false end
+    if self.dashDirY == 0 and self.jumpGraceTimer > 0 then
+        self:superJump(input)
+        return true
+    end
+    if self.dashDirX == 0 and self.dashDirY == -1 then
+        if self:_wallJumpCheck(world, 1) then
+            self:superWallJump(-1)
+            input:consume("jump")
+            return true
+        elseif self:_wallJumpCheck(world, -1) then
+            self:superWallJump(1)
+            input:consume("jump")
+            return true
         end
+    elseif self:_wallJumpCheck(world, 1) then
+        self:wallJump(-1, input)
+        input:consume("jump")
+        return true
+    elseif self:_wallJumpCheck(world, -1) then
+        self:wallJump(1, input)
+        input:consume("jump")
+        return true
     end
     return false
 end
 
-function Player:_upwardCornerCorrect(world, direction)
-    if self.vy >= 0 or direction == 0 then return false end
-    for distance = 1, P.upwardCornerCorrection do
-        for _, offset in ipairs({ distance, -distance }) do
-            local x = self.x + offset
-            if not world:solidAt(x, self.y, self.w, self.h) then
-                self.x = x
-                return true
-            end
+function Player:_dashJumpThruNudge(world)
+    if self.dashDirY ~= 0 then return end
+    local feet = self.y + self.h
+    for _, platform in ipairs(world.jumpThrus) do
+        local overlaps = self.x < platform.x + platform.w and self.x + self.w > platform.x
+            and self.y < platform.y + platform.h and feet > platform.y
+        if overlaps and feet - platform.y <= 6 then
+            self.y = platform.y - self.h
+            return
         end
     end
-    return false
+end
+
+function Player:_tryDreamEntry(world)
+    if not self:_dashAttacking() and self.state ~= "dash" and self.state ~= "red_dash" then
+        return false
+    end
+    local dream = world:findDreamBlock(self, {
+        x = sign(self.dashDirX),
+        y = sign(self.dashDirY),
+    })
+    if not dream then return false end
+    self.dreamDashTimer = 0
+    self.dreamJump = false
+    self.stamina = self.maxStamina
+    self.vx = self.dashDirX * P.dashSpeed
+    self.vy = self.dashDirY * P.dashSpeed
+    self.dashAttackTimer = 0
+    self:setState("dream_dash")
+    return true
 end
 
 function Player:_dashUpdate(world, input, dt)
     if not self.dashInitialized then
-        local dx, dy = input:aim(self.facing)
-        self.dashDirX, self.dashDirY = dx, dy
-        self.vx, self.vy = dx * P.dashSpeed, dy * P.dashSpeed
+        local aimX, aimY = input:aim(self.facing)
+        self.dashDirX, self.dashDirY = aimX, aimY
+        self:_applyDashSpeed(world)
         self.dashInitialized = true
     end
 
-    if input:pressed("jump") then
-        if self.dashDirY == 0 and self.jumpGraceTimer > 0 then
-            self:superJump(input)
-            return
-        end
-        if self.dashDirY == -1 then
-            if world:wallCheck(self, 1, P.wallJumpCheckDist) then
-                self:wallJump(-1)
-                input:consume("jump")
-                return
-            elseif world:wallCheck(self, -1, P.wallJumpCheckDist) then
-                self:wallJump(1)
-                input:consume("jump")
-                return
-            end
-        elseif world:wallCheck(self, 1, P.wallJumpCheckDist) then
-            self:wallJump(-1)
-            input:consume("jump")
-            return
-        elseif world:wallCheck(self, -1, P.wallJumpCheckDist) then
-            self:wallJump(1)
-            input:consume("jump")
-            return
-        end
-    end
+    if self:_dashJumpTech(world, input) then return end
+    if self:_tryDreamEntry(world) then return end
+    self:_dashJumpThruNudge(world)
 
-    local dream = world:findDreamBlock(self, { x = self.dashDirX, y = self.dashDirY })
-    if dream then
-        self.dreamDashTimer = 0
-        self:setState("dream_dash")
-        return
-    end
-
-    local result = self:_move(
-        world,
-        self.dashDirX * P.dashSpeed * dt,
-        self.dashDirY * P.dashSpeed * dt,
-        false
-    )
-    if result.hitWall or result.hitFloor or result.hitCeiling then
-        self:_dashCornerCorrect(world)
-        self:_endDash()
-        return
-    end
+    self:_move(world, self.vx * dt, self.vy * dt, false)
+    if self.state ~= "dash" and self.state ~= "red_dash" then return end
     if self.effects then
         self.effects:dash(self.x + self.w / 2, self.y + self.h / 2, self.dashDirX, self.dashDirY)
     end
-
+    if self.state == "red_dash" then return end
     self.dashTimer = self.dashTimer - dt
     if self.dashTimer <= 0 then self:_endDash() end
 end
 
+function Player:_dreamWiggle(world)
+    if world:solidAt(self.x, self.y, self.w, self.h) == nil then return true end
+    for x = 1, P.dreamDashEndWiggle do
+        for _, xm in ipairs({ -1, 1 }) do
+            for y = 1, P.dreamDashEndWiggle do
+                for _, ym in ipairs({ -1, 1 }) do
+                    local nx = self.x + x * xm
+                    local ny = self.y + y * ym
+                    if world:solidAt(nx, ny, self.w, self.h) == nil then
+                        self.x, self.y = nx, ny
+                        return true
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
+function Player:_finishDreamDash(world, input)
+    local jumped = false
+    if input:pressed("jump") and self.dashDirX ~= 0 then
+        self.dreamJump = true
+        self:jump(input)
+        jumped = true
+    elseif input:held("grab") and not self:_isTired() then
+        local moveX = self:_horizontalInput(input)
+        if (moveX == 1 and world:wallCheck(self, 1, 2)) or (moveX == -1 and world:wallCheck(self, -1, 2)) then
+            self.facing = moveX
+            self.dashes = self.maxDashes
+            self.stamina = self.maxStamina
+            self:_beginClimb()
+            return
+        end
+    end
+    self.dashes = self.maxDashes
+    self.stamina = self.maxStamina
+    if self.dashDirX ~= 0 then
+        self.jumpGraceTimer = P.jumpGraceTime
+        self.dreamJump = true
+    else
+        self.jumpGraceTimer = 0
+    end
+    if not jumped then
+        self.autoJump = true
+        self.autoJumpTimer = 0
+        self:setState("normal")
+    end
+end
+
 function Player:_dreamDashUpdate(world, input, dt)
     self.dreamDashTimer = self.dreamDashTimer + dt
-    local dream = world:findDreamBlock(self, { x = self.dashDirX, y = self.dashDirY })
-    if not dream and self.dreamDashTimer >= P.dreamDashMinTime then
-        self.dreamJump = input:pressed("jump")
-        if self.dreamJump then
-            self:jump(input)
-        else
-            self:_endDash()
+    self.x = self.x + self.vx * dt
+    self.y = self.y + self.vy * dt
+    local dream = world:findDreamBlock(self, { x = 0, y = 0 })
+    if dream then
+        if self.effects then
+            self.effects:dash(self.x + self.w / 2, self.y + self.h / 2, self.dashDirX, self.dashDirY)
         end
         return
     end
-
-    local result = self:_move(
-        world,
-        self.dashDirX * P.dashSpeed * dt,
-        self.dashDirY * P.dashSpeed * dt,
-        true
-    )
-    if result.hitWall or result.hitFloor or result.hitCeiling then
-        self:_endDash()
+    if not self:_dreamWiggle(world) then
+        self:die()
         return
     end
-    if input:pressed("jump") and self.dreamDashTimer >= P.dreamDashMinTime then
-        self:jump(input)
+    if self.dreamDashTimer >= P.dreamDashMinTime then
+        self:_finishDreamDash(world, input)
     end
+end
+
+function Player:_updateDucking(world, input, dt)
+    if self.ducking then
+        if self.onGround and not input:held("down") then
+            if self:canUnDuck(world) then
+                self:_setDucking(world, false)
+            elseif self.vx == 0 then
+                for i = 4, 1, -1 do
+                    if self:canUnDuck(world, self.x + i, self.y) then
+                        world:moveX(self, P.duckCorrectSlide * dt)
+                        break
+                    elseif self:canUnDuck(world, self.x - i, self.y) then
+                        world:moveX(self, -P.duckCorrectSlide * dt)
+                        break
+                    end
+                end
+            end
+        end
+    elseif self.onGround and input:held("down") and self.vy >= 0 then
+        self:_setDucking(world, true)
+    end
+end
+
+function Player:_airWallJump(input, direction)
+    local wallDir = -direction
+    if input:held("grab") and self.facing == wallDir and self.stamina > 0 then
+        self:climbJump(input)
+        return
+    end
+    if self:_dashAttacking() and self.dashDirX == 0 and self.dashDirY == -1 then
+        self:superWallJump(direction)
+        return
+    end
+    self:wallJump(direction, input)
+end
+
+function Player:_tryJump(world, input)
+    if self.jumpBufferTimer <= 0 then return false end
+    if self.ducking and not self:canUnDuck(world) then return false end
+    if self.onGround or self.jumpGraceTimer > 0 then
+        self:jump(input)
+        input:consume("jump")
+        return true
+    end
+    if self:_wallJumpCheck(world, 1) then
+        self:_airWallJump(input, -1)
+        input:consume("jump")
+        return true
+    elseif self:_wallJumpCheck(world, -1) then
+        self:_airWallJump(input, 1)
+        input:consume("jump")
+        return true
+    end
+    return false
 end
 
 function Player:_normalUpdate(world, input, dt)
     local moveX = self:_horizontalInput(input)
-    if moveX ~= 0 then self.facing = moveX end
+    if moveX ~= 0 and self.state ~= "red_dash" then self.facing = moveX end
 
-    if input:held("grab")
-        and not self.tired
-        and not self.onGround
-        and (world:wallCheck(self, self.facing, 2) or world:wallCheck(self, -self.facing, 2))
-    then
-        self:setState("climb")
-        return
+    local lx, ly = self:_liftBoost()
+    if ly < 0 and self.wasOnGround and not self.onGround and self.vy >= 0 then
+        self.vy = ly
     end
 
-    if input:pressed("dash") and self:_startDash(input) then return end
-
-    if input:held("down") and self.onGround then
-        self.ducking = true
-    elseif not input:held("down") then
-        self.ducking = false
+    if self:_tryStartClimb(world, input, moveX) then return end
+    if input:pressed("dash") and self:_canDash() then
+        self.vx = self.vx + lx
+        self.vy = self.vy + ly
+        if self:_startDash(input) then return end
     end
 
-    local maxRun = self.ducking and P.maxRun * 0.8 or P.maxRun
+    self:_updateDucking(world, input, dt)
+
     local mult = self.onGround and 1 or P.airMult
-    if math.abs(self.vx) > maxRun and sign(self.vx) == moveX then
-        self.vx = approach(self.vx, maxRun * moveX, P.runReduce * mult * dt)
+    if self.ducking and self.onGround then
+        self.vx = approach(self.vx, 0, P.duckFriction * dt)
+    elseif math.abs(self.vx) > P.maxRun and sign(self.vx) == moveX then
+        self.vx = approach(self.vx, P.maxRun * moveX, P.runReduce * mult * dt)
     else
-        self.vx = approach(self.vx, maxRun * moveX, P.runAccel * mult * dt)
+        self.vx = approach(self.vx, P.maxRun * moveX, P.runAccel * mult * dt)
     end
 
-    if self.wallSpeedRetentionTimer > 0
-        and moveX == sign(self.wallSpeedRetained)
-        and not world:wallCheck(self, moveX, 1)
-    then
-        self.vx = self.wallSpeedRetained
-        self.wallSpeedRetentionTimer = 0
-    end
-
-    if self:_tryJump(world, input) then
-        -- Continue the same update so the jump receives normal gravity.
-    end
-
-    local currentMaxFall = self.maxFall
     if input:held("down") and self.vy >= P.maxFall then
         self.maxFall = approach(self.maxFall, P.fastMaxFall, P.fastMaxAccel * dt)
     else
         self.maxFall = approach(self.maxFall, P.maxFall, P.fastMaxAccel * dt)
     end
-    currentMaxFall = self.maxFall
+    local currentMaxFall = self.maxFall
 
     self.wallSlideDir = 0
-    if not self.onGround
-        and self.vy >= 0
-        and not input:held("down")
-        and self.wallSlideTimer > 0
+    local slideInput = moveX == self.facing or (moveX == 0 and input:held("grab"))
+    if not self.onGround and slideInput and not input:held("down")
+        and self.vy >= 0 and self.wallSlideTimer > 0
+        and self:canUnDuck(world)
         and world:wallCheck(self, self.facing, 1)
     then
         self.wallSlideDir = self.facing
-        currentMaxFall = lerp(
-            currentMaxFall,
-            P.wallSlideStartMax,
-            self.wallSlideTimer / P.wallSlideTime
-        )
+        currentMaxFall = P.maxFall + (P.wallSlideStartMax - P.maxFall) * (self.wallSlideTimer / P.wallSlideTime)
         self.wallSlideTimer = math.max(0, self.wallSlideTimer - dt)
     end
 
     if not self.onGround then
         local gravityMult = 1
-        if math.abs(self.vy) < P.halfGravThreshold
-            and (input:held("jump") or self.autoJump)
-        then
+        if math.abs(self.vy) < P.halfGravThreshold and (input:held("jump") or self.autoJump) then
             gravityMult = 0.5
         end
         self.vy = approach(self.vy, currentMaxFall, P.gravity * gravityMult * dt)
@@ -599,51 +1006,86 @@ function Player:_normalUpdate(world, input, dt)
         end
     end
 
-    local result = self:_move(
-        world,
-        self.vx * dt,
-        self.vy * dt,
-        input:held("down") and self.onGround
-    )
-    if result.hitWall then
-        self:_upwardCornerCorrect(world, moveX)
-    end
-    if result.hitFloor then
-        self.vy = 0
-        self.autoJump = false
-    end
+    self:_tryJump(world, input)
+    self:_move(world, self.vx * dt, self.vy * dt, false)
 end
 
 function Player:_climbUpdate(world, input, dt)
-    local wallDirection = 0
-    if world:wallCheck(self, self.facing, 2) then wallDirection = self.facing end
-    if world:wallCheck(self, -self.facing, 2) then wallDirection = -self.facing end
-    if not input:held("grab") or wallDirection == 0 then
+    self.climbNoMoveTimer = self.climbNoMoveTimer - dt
+    if self.onGround then self.stamina = self.maxStamina end
+    local moveX = input:axis()
+
+    if input:pressed("jump") and (not self.ducking or self:canUnDuck(world)) then
+        if moveX == -self.facing then
+            self:wallJump(-self.facing, input)
+        else
+            self:climbJump(input)
+        end
+        input:consume("jump")
+        return
+    end
+
+    if input:pressed("dash") and self:_canDash() then
+        local lx, ly = self:_liftBoost()
+        self.vx = self.vx + lx
+        self.vy = self.vy + ly
+        self:_startDash(input)
+        return
+    end
+
+    if not input:held("grab") then
+        local lx, ly = self:_liftBoost()
+        self.vx = self.vx + lx
+        self.vy = self.vy + ly
         self:setState("normal")
+        return
+    end
+
+    if not world:wallCheck(self, self.facing, 2) then
+        if self.vy < 0 then
+            self:climbHop()
+        else
+            self:setState("normal")
+        end
         return
     end
 
     local moveY = 0
     if input:held("up") then moveY = -1 end
     if input:held("down") then moveY = 1 end
-    if moveY < 0 then
-        self.stamina = self.stamina - P.climbUpCost * dt
-        self.vy = approach(self.vy, P.climbUpSpeed, P.climbAccel * dt)
-    elseif moveY > 0 then
-        self.stamina = self.stamina - P.climbStillCost * dt
-        self.vy = approach(self.vy, P.climbDownSpeed, P.climbAccel * dt)
-    else
-        self.stamina = self.stamina - P.climbStillCost * dt
-        self.vy = approach(self.vy, 0, P.climbAccel * dt)
+    local target = 0
+    if self.climbNoMoveTimer <= 0 then
+        if moveY < 0 then
+            target = P.climbUpSpeed
+        elseif moveY > 0 then
+            target = self.onGround and 0 or P.climbDownSpeed
+        end
+    end
+    self.vy = approach(self.vy, target, P.climbAccel * dt)
+    if moveY ~= 1 and self.vy > 0 and not world:wallCheck({
+        x = self.x,
+        y = self.y + 1,
+        w = self.w,
+        h = self.h,
+    }, self.facing, 2) then
+        self.vy = 0
+    end
+
+    if self.climbNoMoveTimer <= 0 then
+        if moveY < 0 then
+            self.stamina = self.stamina - P.climbUpCost * dt
+        elseif moveY == 0 then
+            self.stamina = self.stamina - P.climbStillCost * dt
+        end
     end
     self.tired = self.stamina <= 0
-    if self.tired then self.vy = approach(self.vy, P.climbSlipSpeed, P.climbAccel * dt) end
     self.vx = 0
-    self.wallSlideDir = wallDirection
-
-    if input:pressed("jump") then
-        self:wallJump(-wallDirection)
-        input:consume("jump")
+    self.wallSlideDir = self.facing
+    if self.stamina <= 0 then
+        local lx, ly = self:_liftBoost()
+        self.vx = lx
+        self.vy = self.vy + ly
+        self:setState("normal")
         return
     end
     self:_move(world, 0, self.vy * dt, true)
@@ -651,7 +1093,8 @@ end
 
 function Player:_boostUpdate(world, input, dt)
     self.boostTimer = self.boostTimer - dt
-    local targetX = self.boostTargetX + input:aim(self.facing) * 3
+    local aimX = input:aim(self.facing)
+    local targetX = self.boostTargetX + aimX * 3
     local targetY = self.boostTargetY
     local dx = targetX - (self.x + self.w / 2)
     local dy = targetY - (self.y + self.h / 2)
@@ -661,41 +1104,108 @@ function Player:_boostUpdate(world, input, dt)
         self.x = self.x + dx / length * distance
         self.y = self.y + dy / length * distance
     end
-    if input:pressed("dash") then
+    if input:pressed("dash") or self.boostTimer <= 0 then
         input:consume("dash")
-        self.redDash = self.boostRed
-        self:setState(self.boostRed and "red_dash" or "dash")
-        self.dashInitialized = false
-        self.dashTimer = P.dashTime
-        self.dashCooldownTimer = P.dashCooldown
-        self.dashAttackTimer = P.dashAttackTime
-        self.vx, self.vy = 0, 0
-        return
-    end
-    if self.boostTimer <= 0 then
-        self.redDash = self.boostRed
-        self.dashInitialized = false
-        self.dashTimer = P.dashTime
-        self.dashCooldownTimer = P.dashCooldown
-        self.dashAttackTimer = P.dashAttackTime
-        self.vx, self.vy = 0, 0
-        self:setState(self.boostRed and "red_dash" or "dash")
+        self.beforeDashVx, self.beforeDashVy = 0, 0
+        self:_armDash(self.boostRed)
     end
 end
 
+function Player:_enterSwim()
+    if self.vy > 0 then self.vy = self.vy * P.swimYSpeedMult end
+    self.stamina = P.climbMaxStamina
+    if self:canUnDuck(nil) then self:_setDucking(nil, false) end
+    self:setState("swim")
+end
+
 function Player:_swimUpdate(world, input, dt)
-    if not world:inWater(self) then
+    if not self:_swimCheck(world) then
         self:setState("normal")
         return
     end
-    local dx, dy = input:aim(self.facing)
-    self.vx = approach(self.vx, dx * 80, 600 * dt)
-    self.vy = approach(self.vy, dy * 80, 600 * dt)
-    if input:pressed("jump") then
+    if self:canUnDuck(world) then self:_setDucking(world, false) end
+    if input:pressed("dash") and self:_canDash() then
+        self:_startDash(input)
+        return
+    end
+
+    local underwater = self:_waterShifted(world, -9)
+    if not underwater and self.vy >= 0 and input:held("grab") and not self:_isTired() then
+        if sign(self.vx) ~= -self.facing and world:wallCheck(self, self.facing, 2) then
+            self:_beginClimb()
+            return
+        end
+    end
+
+    local moveX, moveY = input:aim(self.facing)
+    if not input:held("left") and not input:held("right")
+        and not input:held("up") and not input:held("down")
+        and math.abs(input:axis()) < 0.01
+    then
+        moveX, moveY = 0, 0
+    end
+    local maxX = underwater and P.swimUnderwaterMax or P.swimMax
+    if math.abs(self.vx) > P.swimMax and sign(self.vx) == sign(moveX) then
+        self.vx = approach(self.vx, maxX * moveX, P.swimReduce * dt)
+    else
+        self.vx = approach(self.vx, maxX * moveX, P.swimAccel * dt)
+    end
+    local nearSurface = not self:_waterShifted(world, -18)
+    if moveY == 0 and nearSurface then
+        self.vy = approach(self.vy, P.swimMaxRise, P.swimAccel * dt)
+    elseif moveY >= 0 or underwater then
+        if math.abs(self.vy) > P.swimMax and sign(self.vy) == sign(moveY) then
+            self.vy = approach(self.vy, P.swimMax * moveY, P.swimReduce * dt)
+        else
+            self.vy = approach(self.vy, P.swimMax * moveY, P.swimAccel * dt)
+        end
+    end
+
+    local horizontal = self:_horizontalInput(input)
+    if not underwater and horizontal ~= 0
+        and world:wallCheck(self, horizontal, 1)
+        and not world:solidAt(self.x + horizontal, self.y - 3, self.w, self.h)
+    then
+        self.facing = horizontal
+        self:climbHop()
+        return
+    end
+
+    if input:pressed("jump") and not self:_waterShifted(world, -14) then
         self:jump(input)
         return
     end
     self:_move(world, self.vx * dt, self.vy * dt, true)
+end
+
+function Player:_hitSquashUpdate(world, input, dt)
+    self.vx = approach(self.vx, 0, P.hitSquashFriction * dt)
+    self.vy = approach(self.vy, 0, P.hitSquashFriction * dt)
+    if input:pressed("jump") then
+        if self.onGround then
+            self:jump(input)
+        elseif self:_wallJumpCheck(world, 1) then
+            self:wallJump(-1, input)
+        elseif self:_wallJumpCheck(world, -1) then
+            self:wallJump(1, input)
+        else
+            self.jumpBufferTimer = 0
+            self:setState("normal")
+        end
+        input:consume("jump")
+        return
+    end
+    if input:pressed("dash") and self:_startDash(input) then return end
+    if input:held("grab") and not self:_isTired() and world:wallCheck(self, self.facing, 2) then
+        self:_beginClimb()
+        return
+    end
+    self.hitSquashTimer = self.hitSquashTimer - dt
+    if self.hitSquashTimer <= 0 then
+        self:setState("normal")
+        return
+    end
+    self:_move(world, self.vx * dt, self.vy * dt, false)
 end
 
 function Player:_specialUpdate(world, dt)
@@ -718,6 +1228,21 @@ function Player:_specialUpdate(world, dt)
     if self.specialTimer <= 0 then self:setState("normal") end
 end
 
+function Player:_dashFloorSnap(world)
+    if self.onGround or not self:_dashAttacking() or self.dashDirY ~= 0 then return end
+    local dist = P.dashVFloorSnapDist
+    local grounded = world:isGrounded({
+        x = self.x,
+        y = self.y + dist,
+        w = self.w,
+        h = self.h,
+    })
+    if grounded then
+        world:moveY(self, dist, false)
+        self.onGround = world:isGrounded(self)
+    end
+end
+
 function Player:update(world, input, dt)
     if self.dead then
         self.stateTime = self.stateTime + dt
@@ -730,12 +1255,31 @@ function Player:update(world, input, dt)
     end
 
     self:_updateTimers(dt)
-    world:carry(self)
+    self.carriedPlatform = world:carry(self)
+    if self.carriedPlatform and dt > 0 then
+        self.liftX = self.carriedPlatform.dx / dt
+        self.liftY = self.carriedPlatform.dy / dt
+    end
     self:_updateGround(world, dt)
+    self:_updateWallRetention(world, dt)
+    self:_updateHopWait(world)
     self:_readJumpBuffer(input)
 
-    if world.inWater and world:inWater(self) and self.state == "normal" then
-        self:setState("swim")
+    local moveX = self:_horizontalInput(input)
+    if self.wallBoostTimer > 0 then
+        self.wallBoostTimer = math.max(0, self.wallBoostTimer - dt)
+        if moveX == self.wallBoostDir and moveX ~= 0 then
+            self.vx = P.wallJumpHSpeed * moveX
+            self.stamina = self.stamina + P.climbJumpCost
+            self.wallBoostTimer = 0
+        end
+    end
+    if moveX ~= 0 and self.state ~= "climb" and self.state ~= "red_dash" and self.state ~= "hit_squash" then
+        self.facing = moveX
+    end
+
+    if (self.state == "normal" or self.state == "climb") and self:_swimCheck(world) then
+        self:_enterSwim()
     end
 
     if self.state == "normal" then
@@ -750,6 +1294,8 @@ function Player:update(world, input, dt)
         self:_boostUpdate(world, input, dt)
     elseif self.state == "swim" then
         self:_swimUpdate(world, input, dt)
+    elseif self.state == "hit_squash" then
+        self:_hitSquashUpdate(world, input, dt)
     elseif self.state == "frozen"
         or self.state == "dummy"
         or self.state == "intro_walk"
@@ -762,7 +1308,6 @@ function Player:update(world, input, dt)
         or self.state == "temple_fall"
         or self.state == "cassette_fly"
         or self.state == "attract"
-        or self.state == "hit_squash"
         or self.state == "launch"
         or self.state == "summit_launch"
     then
@@ -771,16 +1316,16 @@ function Player:update(world, input, dt)
         self:setState("normal")
     end
 
-    if self.onGround and self.dashRefillCooldownTimer <= 0 then
-        self.dashes = self.maxDashes
-        self.stamina = self.maxStamina
+    if self.vy > 0 and not self.onGround and self.ducking and self:canUnDuck(world) then
+        self:_setDucking(world, false)
     end
-    if self.state ~= "climb" and self.stamina < self.maxStamina and self.onGround then
-        self.stamina = self.maxStamina
-    end
+    self:_dashFloorSnap(world)
 
-    if self.state == "normal" and self.onGround and self.vy == 0 then
-        self.wallSlideDir = 0
+    if self.dashRefillCooldownTimer <= 0 and (self.state == "swim" or self.onGround) then
+        self.dashes = self.maxDashes
+    end
+    if not self.carriedPlatform then
+        self.liftX, self.liftY = 0, 0
     end
     self:_updateHairColor()
 end

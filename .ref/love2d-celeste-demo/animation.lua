@@ -290,6 +290,7 @@ local function chooseFrame(state, time)
 end
 
 function Animation.stateFor(player)
+    if player.state == "hit_squash" then return "duck" end
     if player.state == "dream_dash" then return "dreamdash" end
     if player.state == "dash" or player.state == "red_dash" then return "dash" end
     if player.state == "climb" then return "climb" end

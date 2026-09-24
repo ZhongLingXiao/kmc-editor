@@ -335,11 +335,11 @@ end
 function World:carry(entity)
     local grounded, platform = self:isGrounded(entity)
     if not grounded or not platform or platform.kind ~= "moving" then
-        return false
+        return nil
     end
     if platform.dx ~= 0 then self:moveX(entity, platform.dx) end
     if platform.dy ~= 0 then self:moveY(entity, platform.dy, true) end
-    return true
+    return platform
 end
 
 function World:findDreamBlock(entity, direction)
@@ -355,12 +355,16 @@ function World:findDreamBlock(entity, direction)
     return nil
 end
 
-function World:inWater(entity)
-    local rect = { x = entity.x, y = entity.y, w = entity.w, h = entity.h }
+function World:waterAt(x, y, w, h)
+    local rect = { x = x, y = y, w = w, h = h }
     for _, water in ipairs(self.waters) do
         if overlaps(rect, water) then return true end
     end
     return false
+end
+
+function World:inWater(entity)
+    return self:waterAt(entity.x, entity.y, entity.w, entity.h)
 end
 
 function World:overlapAny(entity, list)

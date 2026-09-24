@@ -102,7 +102,87 @@ function Tests.run()
     step(wallPlayer, wallWorld, wallInput, 1)
     assertTrue(wallPlayer.vy < 0, "wall jump did not launch upward")
 
-    return true, "jump, dash and wall jump checks passed"
+    local coyoteWorld = World.new()
+    coyoteWorld:addSolid(0, 100, 40, 20)
+    local coyote = Player.new(0, 89)
+    step(coyote, coyoteWorld, fakeInput(), 1)
+    assertTrue(coyote.onGround, "coyote setup was not grounded")
+    coyote.x = 80
+    local coyoteJump = fakeInput({
+        pressed = function(name, frame) return name == "jump" and frame == 5 end,
+        held = function(name, frame) return name == "jump" and frame >= 5 end,
+    })
+    step(coyote, coyoteWorld, coyoteJump, 5)
+    assertTrue(coyote.vy < 0, "coyote jump inside 0.10s did not launch, vy=" .. coyote.vy)
+
+    local lateWorld = World.new()
+    lateWorld:addSolid(0, 100, 40, 20)
+    local late = Player.new(0, 89)
+    step(late, lateWorld, fakeInput(), 1)
+    late.x = 80
+    local lateJump = fakeInput({
+        pressed = function(name, frame) return name == "jump" and frame == 8 end,
+        held = function(name, frame) return name == "jump" and frame >= 8 end,
+    })
+    step(late, lateWorld, lateJump, 8)
+    assertTrue(late.vy > 0, "jump after coyote window should keep falling, vy=" .. late.vy)
+
+    local downWorld = World.new()
+    downWorld:addSolid(-20, 400, 200, 20)
+    local downDasher = Player.new(20, 40)
+    local downInput = fakeInput({
+        pressed = function(name, frame) return name == "dash" and frame == 1 end,
+        aim = function() return 0, 1 end,
+    })
+    step(downDasher, downWorld, downInput, 12)
+    assertTrue(downDasher.vy > 180, "down dash should keep dash speed, vy=" .. downDasher.vy)
+
+    local wallDashWorld = World.new()
+    wallDashWorld:addSolid(80, 0, 20, 200)
+    local wallDasher = Player.new(68, 40)
+    local wallDashInput = fakeInput({
+        pressed = function(name, frame) return name == "dash" and frame == 1 end,
+        aim = function() return 1, 0 end,
+    })
+    step(wallDasher, wallDashWorld, wallDashInput, 4)
+    assertTrue(wallDasher.state == "dash", "horizontal dash ended on the first wall hit")
+
+    local superWorld = World.new()
+    superWorld:addSolid(-20, 100, 300, 20)
+    local superPlayer = Player.new(20, 89)
+    local superInput = fakeInput({
+        pressed = function(name, frame)
+            return (name == "dash" and frame == 1) or (name == "jump" and frame == 2)
+        end,
+        held = function(name, frame) return name == "jump" and frame >= 2 end,
+        aim = function() return 1, 0 end,
+    })
+    step(superPlayer, superWorld, superInput, 2)
+    assertTrue(math.abs(superPlayer.vx - 260) < 1, "super jump vx was " .. superPlayer.vx)
+
+    local redWorld = World.new()
+    redWorld:addSolid(-20, 400, 200, 20)
+    local redPlayer = Player.new(20, 40)
+    redPlayer.redDash = true
+    local redInput = fakeInput({
+        pressed = function(name, frame) return name == "dash" and frame == 1 end,
+        aim = function() return 1, 0 end,
+    })
+    step(redPlayer, redWorld, redInput, 20)
+    assertTrue(redPlayer.state == "red_dash", "red dash ended on a timer")
+
+    local squashWorld = World.new()
+    squashWorld:addSolid(80, 0, 20, 200)
+    local squashPlayer = Player.new(68, 40)
+    squashPlayer.redDash = true
+    local squashInput = fakeInput({
+        pressed = function(name, frame) return name == "dash" and frame == 1 end,
+        aim = function() return 1, 0 end,
+    })
+    step(squashPlayer, squashWorld, squashInput, 4)
+    assertTrue(squashPlayer.state == "hit_squash", "red dash collision should enter hit squash, state=" .. squashPlayer.state)
+
+    return true, "jump, dash, coyote, super jump and red dash checks passed"
 end
 
 return Tests
