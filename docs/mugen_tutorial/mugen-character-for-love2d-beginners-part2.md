@@ -312,9 +312,6 @@ end
 return State
 ```
 
-return State
-```
-
 #### 行走状态
 
 ```lua

@@ -206,11 +206,24 @@ MUGEN 有两个时间触发器：
 
 | 触发器 | 含义 | 例子 |
 |---|---|---|
-| `animelemtime(N)` | 当前动画第 N 帧已经播放了多久 | `animelemtime(3) >= 0` = 第3帧已开始 |
-| `animtime` | 整个动画从开始到现在的时间 | `animtime = 10` = 动画播了10帧 |
+| `animelemtime(N)` | 当前时间相对第 N 个动画元素开始时间的差值 | `animelemtime(3) >= 0` = 第3个元素已开始 |
+| `animtime` | 当前动画的剩余时间（通常为负数，0 表示结束） | `animtime = 0` = 动画已经结束 |
 | `animelemno(N)` | 第 N 帧时的动画元素号 | 用于检查当前是第几帧 |
 
 这两个在 trigger entry（附录 F）里常用，比如"第3帧之后才能取消"。
+
+这里的“帧”容易让人误解。MUGEN 的动画是由多个**动画元素（element）**组成的，
+每个元素可以停留几个 tick。例如一个动画有 3 个元素，每个元素停留 3 tick：
+
+```text
+元素1：tick 0、1、2
+元素2：tick 0、1、2
+元素3：tick 0、1、2
+```
+
+`animelemtime(2)` 关心的不是“当前是不是元素2”，而是“现在距离元素2开始
+过去了多久”。所以在元素1时它是负数，刚进入元素2时是 0，进入元素3后仍然
+是正数。
 
 ### 1.5 我们的方案：JSON 动画格式
 
@@ -3003,25 +3016,33 @@ local T = {
 
 #### animelemtime（动画元素时间）
 
+`animelemtime(N)` 用来表示“当前时间相对于第 N 个动画元素开始时间的位置”。
+因此它可以用来判断一个元素是否已经开始：
+
+```text
+返回值 < 0：第 N 个元素还没有开始
+返回值 = 0：正好进入第 N 个元素
+返回值 > 0：第 N 个元素已经开始了一段时间，甚至已经播放完
+```
+
+例如，下面的条件表示“第 3 个动画元素已经开始”，而不是“当前必须正好
+停在第 3 个元素”：
+
 ```ini
 ; MUGEN
-trigger1 = animelemtime(3) >= 0     ; 第3帧已经开始
+trigger1 = animelemtime(3) >= 0     ; 第3个动画元素已经开始
 ```
 
 ```lua
--- 需要 Player 类实现 animElemTime 方法（第五章详讲）
-function Player:animElemTime(n)
-    if n < 1 or n > #self.anim.elements then return -1 end
-    if self.anim_frame < n then return -1 end
-    if self.anim_frame > n then return 999 end
-    return self.anim_tick
-end
-
 -- trigger entry 里用内联
 triggers = {
     { function(p) return p:animElemTime(3) >= 0 end, T.moveContact },  -- animelemtime(3) >= 0
 }
 ```
+
+这里的 `animElemTime` 返回的是一个数字，不是布尔值。只要关心“是否已经
+开始”，就检查它是否大于等于 0；需要精确知道经过了多少 tick 时，才使用
+它的具体数值。第五章会实现这个方法。
 
 #### animtime（动画总时间）
 
@@ -3538,38 +3559,110 @@ end
 
 #### animelemtime(N)
 
-返回"第 N 帧已经播放了多久"。用于"第3帧之后才能取消"这种精确条件。
+先记住一句话：
+
+> `animElemTime(n)` = 当前动画时间 − 第 n 个动画元素的开始时间。
+
+因此，目标元素还没有开始时，结果是负数；刚开始时是 `0`；开始之后，
+结果会继续增加。它不是“当前帧的 tick”，只有当当前正好是第 n 个元素时，
+两者才相等。
+
+假设动画有 3 个元素，每个元素持续 3 tick：
+
+```text
+当前元素：       1     1     1     2     2     2     3     3     3
+当前元素 tick：  0     1     2     0     1     2     0     1     2
+
+animElemTime(2): -3    -2    -1     0     1     2     3     4     5
+```
+
+例如，当前是“元素2的第1个 tick”时：
+
+```text
+当前动画时间 = 元素1的3 tick + 元素2的1 tick = 4
+元素2的开始时间 = 3
+animElemTime(2) = 4 - 3 = 1
+```
+
+这也解释了为什么在这一轮动画中，`animElemTime(2) >= 0` 从元素2开始一直为真。
 
 ```lua
 function Player:animElemTime(n)
-    -- n 是帧索引（1起）
-    if n < 1 or n > #self.anim.elements then return -1 end
+    local anim = self.anim
+
+    -- 本项目的约定：没有动画或元素编号无效时返回 -1，
+    -- 这样 animElemTime(n) >= 0 会自然得到 false。
+    if not anim or not anim.elements then
+        return -1
+    end
+    if n < 1 or n > #anim.elements then
+        return -1
+    end
+
+    -- 先从“当前元素已经播放了多少 tick”开始算。
+    local time = self.anim_tick
 
     if self.anim_frame < n then
-        return -1          -- 还没到第 n 帧
+        -- 目标元素在后面：减去中间元素还要占用的时间。
+        for i = self.anim_frame, n - 1 do
+            time = time - anim.elements[i].duration
+        end
     elseif self.anim_frame > n then
-        return 999          -- 已经过了第 n 帧（返回大数表示"早就开始了"）
-    else
-        return self.anim_tick  -- 正好在第 n 帧，返回已播放 tick
+        -- 目标元素在前面：加上目标元素及中间元素已经占用的时间。
+        for i = n, self.anim_frame - 1 do
+            time = time + anim.elements[i].duration
+        end
     end
+
+    return time
 end
 ```
 
-图示：
+把代码代入一个具体例子。假设：
 
+```lua
+self.anim_frame = 2       -- 当前正在播放元素2
+self.anim_tick = 1         -- 元素2已经播放了1 tick
+n = 3                      -- 查询元素3
 ```
-动画 3 帧，每帧 duration=3：
 
-帧:      1     1     1     2     2     2     3     3     3
-tick:    0     1     2     0     1     2     0     1     2
-                                                         ↑ anim_finished
+代码会这样计算：
 
-animElemTime(1):  0    1     2    999   999   999   999   999   999
-animElemTime(2): -1   -1    -1     0     1     2    999   999   999
-animElemTime(3): -1   -1    -1    -1    -1    -1     0     1     2
-
-trigger: animelemtime(2) >= 0  →  从第4个tick开始为 true（第2帧已开始）
+```text
+time = 1                         -- 当前元素2已经过了1 tick
+time = 1 - duration(元素2) = 1 - 3 = -2
+返回 -2                         -- 元素3还要2 tick才开始
 ```
+
+如果仍然使用旧版本的 `-1` 和 `999`：
+
+```lua
+if self.anim_frame < n then return -1 end
+if self.anim_frame > n then return 999 end
+```
+
+那么 `animElemTime(n) >= 0` 这个特定判断仍然能工作，因为它只关心正负号；
+但是 `animElemTime(n) == 4` 或 `animElemTime(n) > 2` 就会得到错误结果。
+所以 `999` 只能作为“已经经过”的简化标记，不能当作真实的动画时间。
+
+本教程的更新顺序约定是：先执行状态逻辑和触发器，再调用 `updateAnim()`。
+因此刚进入一个元素时，`anim_tick == 0`，可以用：
+
+```lua
+-- 只在正好进入第 2 个元素的这个 tick 执行一次
+if player:animElemTime(2) == 0 then
+    playSound("slash_swing")
+end
+```
+
+如果你的主循环是先调用 `updateAnim()`、再检查触发器，那么第一个 tick
+可能已经变成 `1`，`== 0` 的事件就会错过。动画推进和触发器检查的顺序
+必须统一。
+
+循环动画回到第 1 个元素时，本实现会把 `anim_frame` 和 `anim_tick` 重置，
+所以 `animElemTime(n) == 0` 会在每次循环进入该元素时再次触发。非循环动画
+通常只会在该动画播放过程中触发一次；如果代码让动画停在最后一个元素后仍然
+继续更新，就应该用 `anim_finished` 或事件标记避免重复触发。
 
 #### animtime
 
@@ -3701,7 +3794,7 @@ MUGEN 的动画时间由引擎管理，**不能通过 sctrl 设置当前帧**：
 |---|---|---|
 | `animelemno(0)` | `player.anim_frame` | 查当前帧号 |
 | ❌ 不能 set | ✅ `player.anim_frame = N` | 设当前帧号 |
-| `animelemtime(N)` | `player:animElemTime(N)` | 查第N帧已播放多久 |
+| `animelemtime(N)` | `player:animElemTime(N)` | 查相对第N个元素开始的时间 |
 | ❌ 不能 set | ✅ `player.anim_tick = N` | 设当前帧内 tick |
 
 MUGEN 的所有动画切换 sctrl 都会重置 anim 时间：
@@ -3787,7 +3880,8 @@ function State:onTick(player, dt)
 end
 ```
 
-`animElemTime(N) == 0` 表示"正好进入第 N 帧的那一 tick"，只触发一次。
+`animElemTime(N) == 0` 表示"正好进入第 N 个元素的那一 tick"。
+非循环动画中它对同一个元素只触发一次；循环动画每次重新进入该元素时都会触发。
 
 #### 方式 2：用 state_time 判断
 
@@ -4101,10 +4195,21 @@ end
 
 -- animelemtime 实现
 function Player:animElemTime(n)
-    if n < 1 or n > #self.anim.elements then return -1 end
-    if self.anim_frame < n then return -1 end
-    if self.anim_frame > n then return 999 end
-    return self.anim_tick
+    local anim = self.anim
+    if not anim or not anim.elements then return -1 end
+    if n < 1 or n > #anim.elements then return -1 end
+
+    local time = self.anim_tick
+    if self.anim_frame < n then
+        for i = self.anim_frame, n - 1 do
+            time = time - anim.elements[i].duration
+        end
+    elseif self.anim_frame > n then
+        for i = n, self.anim_frame - 1 do
+            time = time + anim.elements[i].duration
+        end
+    end
+    return time
 end
 
 -- animtime 实现
@@ -4314,7 +4419,7 @@ return State
 | 动画和状态关系 | 状态有 `anim` 字段，`setState` 自动 `changeAnim` |
 | 动画播放 | `anim_frame` + `anim_tick` 推进，`anim_finished` 标记播完 |
 | 循环 vs 非循环 | `loop=true` 循环回第1帧，`loop=false` 停在最后一帧 |
-| animelemtime(N) | 第 N 帧已播放多久，用于"第N帧之后才能取消" |
+| animelemtime(N) | 相对第 N 个元素开始的时间（负数=未到，0=刚到，正数=已开始） |
 | animtime | 剩余时间（负数），0 = 播完 |
 | 帧事件 | 在特定帧触发逻辑（音效/特效/hitbox开关），用 `animElemTime(N) == 0` 检测 |
 | hitbox 生效 | 动画 JSON 定义 hitbox，`hitbox_active` 标记是否生效 |
@@ -4328,7 +4433,7 @@ return State
 1. **动画和状态分离**：状态定义 `anim` 字段，`setState` 自动切动画。一个动画可被多状态用，一个状态可中途 `changeAnim` 换动画
 2. **animelemtime 是核心 trigger**：精确控制"第几帧做什么"，用于取消窗口、帧事件
 3. **hitbox_active 控制生效**：动画 JSON 定义 hitbox 形状，状态用 `hitbox_active` 控制何时生效
-4. **帧事件用 animElemTime(N)==0 检测**：只触发一次，精确到 tick
+4. **帧事件用 animElemTime(N)==0 检测**：在每次进入元素时触发，精确到 tick
 5. **Sprite Sheet 用 Quad**：多帧打包一张大图，截取渲染，和单张 PNG 效果一样
 
 **下一步**：第六章讲物理系统（速度/重力/摩擦/落地），让角色能正确地走、跑、跳、落地。
